@@ -17,11 +17,11 @@
   <xs:simpleType name="version">
     <xs:annotation>
       <xs:documentation>
-        Defines a version number: major.minor[.build[.revision]]
+        Defines a version number: major.minor.build.revision
       </xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
-      <xs:pattern value="\d+\.\d+(\.\d+(\.\d+)?)?" />
+      <xs:pattern value="\d+\.\d+\.\d+\.\d+" />
     </xs:restriction>
   </xs:simpleType>
 
@@ -68,6 +68,8 @@
     <xs:restriction base="xs:string">
       <xs:enumeration value="context" />
       <xs:enumeration value="chat" />
+      <xs:enumeration value="deckeditor" />
+      <xs:enumeration value="notes"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -98,6 +100,74 @@
                     <xs:annotation>
                       <xs:documentation>
                         The id of the relationship pointing to the Python script
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="events" minOccurs="0" maxOccurs="1">
+          <xs:annotation>
+            <xs:documentation>
+              Connects game events to python actions
+            </xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="event" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:annotation>
+                    <xs:documentation>
+                      Defines a single event tied to a single action
+                    </xs:documentation>
+                  </xs:annotation>
+                  <xs:attribute name="name" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        The name of the event you want to tie to
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="action" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        The name of the python action you want to invoke
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="sounds" minOccurs="0" maxOccurs="1">
+          <xs:annotation>
+            <xs:documentation>
+              Defines the sounds used by the game
+            </xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="sound" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:annotation>
+                    <xs:documentation>
+                      Defines a single sound
+                    </xs:documentation>
+                  </xs:annotation>
+                  <xs:attribute name="name" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        The unique name of the sound
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="src" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        The relative path where the sound is located
                       </xs:documentation>
                     </xs:annotation>
                   </xs:attribute>
@@ -147,90 +217,13 @@
             </xs:sequence>
           </xs:complexType>
         </xs:element>
-        <xs:element name="proxygen" minOccurs="0" maxOccurs="1">
+        <xs:element name="proxygen">
           <xs:annotation>
             <xs:documentation>
-              Defines the template and field mappings for the proxy generator.
+              Defines the template file for the proxy generator.
             </xs:documentation>
           </xs:annotation>
           <xs:complexType>
-            <xs:sequence>
-              <xs:element name="templatemapping" minOccurs="1" maxOccurs="1">
-                <xs:annotation>
-                  <xs:documentation>
-                    Defines the template mapping.
-                  </xs:documentation>
-                </xs:annotation>
-                <xs:complexType>
-                  <xs:sequence>
-                    <xs:element name="templatemap" minOccurs="1" maxOccurs="unbounded">
-                      <xs:annotation>
-                        <xs:documentation>
-                          Defines which template will be selected.
-                        </xs:documentation>
-                      </xs:annotation>
-                      <xs:complexType>
-                        <xs:attribute name="field" type="xs:string" use="required">
-                          <xs:annotation>
-                            <xs:documentation>
-                              The field in the game definition it will try to use to load a template.
-                            </xs:documentation>
-                          </xs:annotation>
-                        </xs:attribute>
-                      </xs:complexType>
-                    </xs:element>
-                  </xs:sequence>
-                  <xs:attribute name="defaulttemplate" type="xs:string">
-                    <xs:annotation>
-                      <xs:documentation>
-                        The default template to use when it cannot match the field mapping to a template.
-                      </xs:documentation>
-                    </xs:annotation>
-                  </xs:attribute>
-                  <xs:attribute name="usemultimatch" type="boolean" default="False">
-                    <xs:annotation>
-                      <xs:documentation>
-                        Use multi field matching True or False. Defaults to False when not explicitly set.
-                      </xs:documentation>
-                    </xs:annotation>
-                  </xs:attribute>
-                </xs:complexType>
-              </xs:element>
-              <xs:element name="mappings" minOccurs="1" maxOccurs="1">
-                <xs:annotation>
-                  <xs:documentation>
-                    Defines the field mappings for inserting the field data from a card into the template placeholders.
-                  </xs:documentation>
-                </xs:annotation>
-                <xs:complexType>
-                  <xs:sequence>
-                    <xs:element name="mapping" minOccurs="1" maxOccurs="unbounded">
-                      <xs:annotation>
-                        <xs:documentation>
-                          Defines the field mapping.
-                        </xs:documentation>
-                      </xs:annotation>
-                      <xs:complexType>
-                        <xs:attribute name="name" type="xs:string" use="required">
-                          <xs:annotation>
-                            <xs:documentation>
-                              Name of the field in the gamedefinition to load the data from.
-                            </xs:documentation>
-                          </xs:annotation>
-                        </xs:attribute>
-                        <xs:attribute name="mapto" type="xs:string" use="required">
-                          <xs:annotation>
-                            <xs:documentation>
-                              The field in template to load the data into.
-                            </xs:documentation>
-                          </xs:annotation>
-                        </xs:attribute>
-                      </xs:complexType>
-                    </xs:element>
-                  </xs:sequence>
-                </xs:complexType>
-              </xs:element>
-            </xs:sequence>
             <xs:attribute name="definitionsrc" type="xs:string" use="required">
               <xs:annotation>
                 <xs:documentation>
@@ -238,6 +231,102 @@
                 </xs:documentation>
               </xs:annotation>
             </xs:attribute>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="documents" minOccurs="0" maxOccurs="1">
+          <xs:annotation>
+            <xs:documentation>
+              Defines a list of documents used by the game.
+            </xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="document" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:annotation>
+                    <xs:documentation>
+                      Defines a single document
+                    </xs:documentation>
+                  </xs:annotation>
+                  <xs:attribute name="src" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        The relative path to the document file to be used.
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="icon" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        The relative path to an icon to display for this document.
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="name" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        The name of this document.
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="gameModes" minOccurs="0" maxOccurs="1">
+          <xs:annotation>
+            <xs:documentation>
+              Defines a list of game modes for the game.
+            </xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="gameMode" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:annotation>
+                    <xs:documentation>
+                      Defines a single game mode.
+                    </xs:documentation>
+                  </xs:annotation>
+                  <xs:attribute name="name" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        Name of the game mode
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="shortDescription" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        Description of the game mode
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="image" type="xs:string" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        The relative path to an image to display for this game mode.
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="playerCount" type="xs:int" use="required">
+                    <xs:annotation>
+                      <xs:documentation>
+                        Number of players this game mode uses.
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="usetwosidedtable" type="xs:boolean" use="optional" default="true">
+                    <xs:annotation>
+                      <xs:documentation>
+                        Weather to use two sided table or not.
+                      </xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
           </xs:complexType>
         </xs:element>
         <xs:element name="globalvariables" minOccurs="0" maxOccurs="1">
@@ -375,7 +464,7 @@
             </xs:attribute>
           </xs:complexType>
         </xs:element>
-        <xs:element name="table" type="group" />
+        <xs:element name="table" type="group"/>
         <xs:element name="player">
           <xs:annotation>
             <xs:documentation>
@@ -408,7 +497,7 @@
                 </xs:complexType>
               </xs:element>
               <xs:element name="counter" type="counter" minOccurs="0" maxOccurs="unbounded" />
-              <xs:element name="hand" type="group" minOccurs="0" />
+              <xs:element name="hand" type="hand" minOccurs="0" />
               <xs:element name="group" type="group" minOccurs="0" maxOccurs="unbounded" />
             </xs:choice>
             <xs:attribute name="summary" type="xs:string" use="optional">
@@ -461,6 +550,13 @@
         <xs:annotation>
           <xs:documentation>
             Minimum version of Octgn required to run this game
+          </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="scriptVersion" use="optional" type="version" default="3.1.0.0">
+        <xs:annotation>
+          <xs:documentation>
+            Script engine to use
           </xs:documentation>
         </xs:annotation>
       </xs:attribute>
@@ -517,6 +613,27 @@
         <xs:annotation>
           <xs:documentation>
             Game icon url.
+          </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="usetwosidedtable" type="boolean" use="optional" default="True">
+        <xs:annotation>
+          <xs:documentation>
+            Use a two sided table in game.
+          </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="noteBackgroundColor" use="optional" type="xs:string" default="#FFEBE8C5">
+        <xs:annotation>
+          <xs:documentation>
+            Background color for notes in game.
+          </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="noteForegroundColor" use="optional" type="xs:string" default="#FF000000">
+        <xs:annotation>
+          <xs:documentation>
+            Foreground color for notes in game.
           </xs:documentation>
         </xs:annotation>
       </xs:attribute>
@@ -623,10 +740,12 @@
       </xs:documentation>
     </xs:annotation>
     <xs:choice minOccurs="0" maxOccurs="unbounded">
-      <xs:element name="groupaction" type="action" />
-      <xs:element name="groupactions" type="actionSubmenu" />
-      <xs:element name="cardaction" type="action" />
-      <xs:element name="cardactions" type="actionSubmenu" />
+      <xs:element name="groupaction" type="groupAction" />
+      <xs:element name="groupactions" type="groupActionSubmenu" />
+      <xs:element name="cardaction" type="cardAction" />
+      <xs:element name="cardactions" type="cardActionSubmenu" />
+      <xs:element name="cardseparator" type="cardActionSeparator" />
+      <xs:element name="groupseparator" type="groupActionSeparator" />
     </xs:choice>
     <xs:attribute name="name" type="xs:string">
       <xs:annotation>
@@ -733,6 +852,17 @@
     </xs:attribute>
   </xs:complexType>
 
+  <xs:complexType name="hand">
+    <xs:annotation>
+      <xs:documentation>
+        Defines the properties of one card group.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexContent>
+      <xs:extension base="group"/>
+    </xs:complexContent>
+  </xs:complexType>
+
   <xs:complexType name="deck">
     <xs:annotation>
       <xs:documentation>
@@ -762,6 +892,13 @@
         </xs:documentation>
       </xs:annotation>
     </xs:attribute>
+    <xs:attribute name="showIf" use="optional" type="xs:string">
+      <xs:annotation>
+        <xs:documentation>
+          The python function to call to determine if this action should be shown.
+        </xs:documentation>
+      </xs:annotation>
+    </xs:attribute>
   </xs:complexType>
 
   <xs:complexType name="actionSubmenu">
@@ -777,6 +914,8 @@
           <xs:element name="groupaction" type="action" />
           <xs:element name="cardactions" type="actionSubmenu" />
           <xs:element name="groupactions" type="actionSubmenu" />
+          <xs:element name="cardseparator" type="cardActionSeparator" />
+          <xs:element name="groupseparator" type="groupActionSeparator" />
         </xs:choice>
       </xs:extension>
     </xs:complexContent>
@@ -820,6 +959,84 @@
           </xs:annotation>
         </xs:attribute>
       </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="actionSeparator">
+    <xs:annotation>
+      <xs:documentation>
+        This is the base class for separator items.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexContent>
+      <xs:extension base="baseAction">
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="cardAction">
+    <xs:annotation>
+      <xs:documentation>
+        Defines a card action.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexContent>
+      <xs:extension base="action"/>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="cardActionSubmenu">
+    <xs:annotation>
+      <xs:documentation>
+        This type represents a sub menu and contains other cardAction items.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexContent>
+      <xs:extension base="actionSubmenu"/>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="cardActionSeparator">
+    <xs:annotation>
+      <xs:documentation>
+        This type represents a separator menu item.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexContent>
+      <xs:extension base="actionSeparator"/>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="groupAction">
+    <xs:annotation>
+      <xs:documentation>
+        Defines a group action.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexContent>
+      <xs:extension base="action"/>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="groupActionSubmenu">
+    <xs:annotation>
+      <xs:documentation>
+        This type represents a sub menu and contains other groupAction items.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexContent>
+      <xs:extension base="actionSubmenu"/>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="groupActionSeparator">
+    <xs:annotation>
+      <xs:documentation>
+        This type represents a separator menu item.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexContent>
+      <xs:extension base="actionSeparator"/>
     </xs:complexContent>
   </xs:complexType>
 

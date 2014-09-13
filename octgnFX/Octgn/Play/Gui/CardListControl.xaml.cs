@@ -7,7 +7,6 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
-using Octgn.Definitions;
 
 namespace Octgn.Play.Gui
 {
@@ -91,9 +90,14 @@ namespace Octgn.Play.Gui
             _wrapPanel.ClippingVisual = scroller; // but rather with the better suited InsertAdorner clipping behavior
         }
 
-        internal override void ShowContextMenu(Card card, bool showGroupActions = true)
+        //internal override void ShowContextMenu(Card card, bool showGroupActions = true)
+        //{
+        //    // Don't show the group context menu in card lists.
+        //}
+
+        public override bool ExecuteDefaultGroupAction()
         {
-            // Don't show the group context menu in card lists.
+            return false;
         }
 
         #region Card DnD
@@ -110,8 +114,7 @@ namespace Octgn.Play.Gui
             base.OnCardOver(sender, e);
 
             // Set overlay card size
-            CardDef cardDef = Program.Game.Definition.CardDefinition;
-            e.CardSize = new Size(cardDef.Width*100/cardDef.Height, 100);
+            e.CardSize = new Size(Program.GameEngine.Definition.CardWidth * 100 / Program.GameEngine.Definition.CardHeight, 100);
             if (IsAlwaysUp) e.FaceUp = true;
 
             // Drop is forbidden when not ordered by position
@@ -193,7 +196,7 @@ namespace Octgn.Play.Gui
             {
                 // Fix the target index if the card is already in the group at a lower index
                 if (c.Group == @group && c.GetIndex() < idx) --idx;
-                c.MoveTo(@group, e.FaceUp != null && e.FaceUp.Value, idx++);
+                c.MoveTo(@group, e.FaceUp != null && e.FaceUp.Value, idx++,false);
             }
         }
 

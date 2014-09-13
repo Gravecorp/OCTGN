@@ -19,11 +19,14 @@ using System.IO;
 using System.Net.Sockets;
 using System.Windows.Media;
 using Octgn.Play;
+using Octgn.Core.Networking;
+using log4net;
 
 namespace Octgn.Networking
 {
 	public abstract class BaseBinaryStub : IServerCalls
 	{			
+		internal static ILog Log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 		protected abstract void Send(byte[] data);
 <#
   int msgId = -1;
@@ -36,6 +39,10 @@ namespace Octgn.Networking
 
 		public void <#= msgName #>(<#= ParametersList(msg) #>)
 		{
+			<# if(msgName != "Ping"){ #>
+			//Log.Info("[ProtOut] <#= msgName #>");
+			<# } #>
+		    if(Program.Client == null)return;
 			MemoryStream stream = new MemoryStream(512);
 			stream.Seek(4, SeekOrigin.Begin);
 			BinaryWriter writer = new BinaryWriter(stream);
@@ -66,22 +73,14 @@ namespace Octgn.Networking
 	
 	public class BinarySenderStub : BaseBinaryStub
 	{
-		private TcpClient to;
+		private ISocket to;
 		
-		public BinarySenderStub(TcpClient to)
+		public BinarySenderStub(ISocket to)
 		{ this.to = to; }
 		
 		protected override void Send(byte[] data)
 		{
-			try
-			{
-				Stream stream = to.GetStream();
-				stream.Write(data, 0, data.Length); stream.Flush();
-			}
-			catch 
-			{ 
-				Program.Client.Disconnected();
-			}
+			to.Send(data);
 		}
 	}
 }
@@ -90,10 +89,15 @@ namespace Octgn.Networking
   {
     var sb = new StringBuilder();
     foreach (var p in msg.Elements("param"))
-      sb.Append(p.Attribute("type").Value)
-        .Append(" ")
-        .Append(p.Attribute("name").Value)
-        .Append(", ");
+        {
+            var ptype= p.Attribute("type").Value;
+			if(ptype == "PlayerOrSpectator")
+                ptype = "Player";
+            sb.Append(ptype)
+                .Append(" ")
+                .Append(p.Attribute("name").Value)
+                .Append(", ");
+        }
     if (sb.Length > 0) sb.Remove(sb.Length - 2, 2);
     return sb.ToString();
   }
@@ -106,7 +110,9 @@ namespace Octgn.Networking
     { "Guid[]", @"writer.Write((short){0}.Length);
 foreach (Guid g in {0})
 	writer.Write(g.ToByteArray());" },
-
+    { "string[]", @"writer.Write((short){0}.Length);
+foreach (string s in {0})
+	writer.Write(s);" },
     { "CardOrientation", "writer.Write((byte){0});" },
 
     { "short[]", @"writer.Write((short){0}.Length);
@@ -122,6 +128,7 @@ foreach (int p in {0})
 				writer.Write(p);" },
     
     { "Player", "writer.Write({0}.Id);" },
+    { "PlayerOrSpectator", "writer.Write({0}.Id);" },
     { "ControllableObject", "writer.Write({0}.Id);" },
     { "Group", "writer.Write({0}.Id);" },
     { "Card", "writer.Write({0}.Id);" },

@@ -1,108 +1,116 @@
-﻿namespace Octgn.Online.GameService
+﻿/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+using System;
+using System.Reflection;
+using System.Threading;
+using log4net;
+using Octgn.Library;
+
+namespace Octgn.Online.GameService
 {
-    using System;
-    using System.Reflection;
-    using System.Security.Principal;
-    using System.ServiceProcess;
-    using System.Threading;
-
-    using Microsoft.AspNet.SignalR;
-
-    using Octgn.Online.Library.UpdateManager;
-
-    using log4net;
-
-    internal static class Program
+    class Program
     {
         internal static ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-        internal static GameService Service;
-        internal static bool KeepRunning;
-        internal static void Main()
+        private static bool _gotCheckBack;
+        private static bool _running = true;
+        private static DateTime _startTime;
+        static void Main(string[] args)
         {
-            Log.Info("Starting Octgn.Online.GameService");
-            if (!IsAdmin()) return;
-            AppDomain.CurrentDomain.UnhandledException += CurrentDomainUnhandledException;
-            if (UpdateManager.GetContext().Update()) return;
-            UpdateManager.GetContext().OnUpdateDetected += UpdateManagerOnOnUpdateDetected;
-            UpdateManager.GetContext().Start();
-            GlobalHost.Configuration.DisconnectTimeout = new TimeSpan(0, 0, 0, 6);
-#if(DEBUG)
-
-            StartServiceCommandLine();
-            Console.WriteLine("==DONE==");
-            Console.ReadLine();
-#else
-            StartService();
-#endif
-
-        }
-
-        private static bool IsAdmin()
-        {
-            Log.Info("Check if running as admin(required)");
-            var identity = WindowsIdentity.GetCurrent();
-            if (identity == null || !new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
+            try
             {
-                Log.Fatal("Not running as Admin, Admin mode required. Exiting.");
-                //+ Probably don't want to uncomment the blow shitz
-                //var newP = new Process();
-                //newP.EnableRaisingEvents = true;
-                //var info = new ProcessStartInfo(Assembly.GetEntryAssembly().Location);
-                //info.Verb = "runas";
-                //newP.StartInfo = info;
-                //newP.Start();
-                //newP.WaitForExit();
-                return false;
-            }
-            Log.Info("Running as admin, good...good");
-            return true;
-        }
-
-        private static void UpdateManagerOnOnUpdateDetected(object sender, EventArgs eventArgs)
-        {
-            Stop();
-        }
-
-        internal static void CurrentDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
-        {
-            var ex = e.ExceptionObject as Exception;
-            Log.Fatal("Unhandled Exception",ex??new Exception("Unknown Exception"));
-            Stop();
-        }
-
-        internal static void StartServiceCommandLine()
-        {
-            Log.Info("Starting in CommandLine mode");
-            using (Service = new GameService())
-            {
-                KeepRunning = true;
-                Service.Start();
-                Service.OnServiceStop += (sender, args) => Stop(false);
-                Console.WriteLine("Press 'q' to quit");
-                while (KeepRunning)
+                if (args.Length == 1 && args[0].Equals("kill"))
                 {
-                    if (Console.KeyAvailable && Console.ReadKey().Key == ConsoleKey.Q) break;
-                    Thread.Sleep(100);
+                    Log.Info("Kill mode active...");
+                    if (InstanceHandler.Instance.OtherExists())
+                    {
+                        Log.Info("Other instance exists...Killing");
+                        InstanceHandler.Instance.KillOther();
+                    }
+                    return;
                 }
-                Stop();
+
+				InstanceHandler.Instance.SetupValues();
+
+                GameBot.Instance.Start();
+                GameManager.Instance.Start();
+				SasUpdater.Instance.Start();
+                _startTime = DateTime.Now;
+                _gotCheckBack = true;
+                GameBot.Instance.OnCheckRecieved += OnCheckRecieved;
+                AppDomain.CurrentDomain.UnhandledException += CurrentDomainUnhandledException;
+                AppDomain.CurrentDomain.ProcessExit += CurrentDomainProcessExit;
+                Run();
+            }
+            catch (Exception e)
+            {
+                Log.Fatal("Fatal Main Error", e);
+            }
+            finally
+            {
+                Quit();
             }
         }
 
-        internal static void StartService()
+        static void Run()
         {
-            Log.Info("Starting in Service mode");
-            Service = new GameService();
-            Service.OnServiceStop += (sender, args) => Stop(false);
-            var services = new ServiceBase[] { Service };
-            ServiceBase.Run(services);
+            DateTime dt = DateTime.Now;
+            while (_running)
+            {
+                if (!_running) return;
+                Thread.Sleep(2000);
+                if (new TimeSpan(DateTime.Now.Ticks - dt.Ticks).Seconds > 30 && _gotCheckBack == false)
+                {
+                    Log.Error("[Status]Bot must have died. Remaking.");
+                    GameBot.Instance.RemakeXmpp();
+                    _gotCheckBack = true;
+                }
+                if (new TimeSpan(DateTime.Now.Ticks - dt.Ticks).Minutes > 1)
+                {
+                    dt = DateTime.Now;
+                    var ts = new TimeSpan(dt.Ticks - _startTime.Ticks);
+                    Log.InfoFormat("[Running For]: {0} Days, {1} Hours, {2} Minutes", ts.Days, ts.Hours, ts.Minutes);
+                    GameBot.Instance.CheckBotStatus();
+                    Log.Info("[Status]Bot Checking...");
+                    _gotCheckBack = false;
+                }
+                if (InstanceHandler.Instance.KillMe)
+                {
+                    Log.Info("This program wants to die...");
+                    _running = false;
+                }
+
+            }
         }
 
-        internal static void Stop(bool stopService = true)
+        private static void OnCheckRecieved(object sender)
         {
-            KeepRunning = false;
-            if(Service != null && stopService)
-                Service.Stop();
-            UpdateManager.GetContext().Stop();
+            _gotCheckBack = true;
+            Log.Info("[Status]Bot Alive.");
+        }
+
+        private static void CurrentDomainProcessExit(object sender, EventArgs e)
+        {
+            Quit();
+        }
+
+        private static void CurrentDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            var ex = (Exception)e.ExceptionObject;
+            Log.Fatal("Unhandled Exception",ex);
+            Quit();
+        }
+
+        private static void Quit()
+        {
+            X.Instance.Try(GameBot.Instance.Dispose);
+            X.Instance.Try(GameManager.Instance.Dispose);
+            X.Instance.Try(SasUpdater.Instance.Dispose);
+            X.Instance.Try(()=>GameBot.Instance.OnCheckRecieved -= OnCheckRecieved);
+            AppDomain.CurrentDomain.UnhandledException -= CurrentDomainUnhandledException;
+            AppDomain.CurrentDomain.ProcessExit -= CurrentDomainProcessExit;
+            _running = false;
+            Log.Fatal("###PROCESS QUIT####");
         }
     }
 }

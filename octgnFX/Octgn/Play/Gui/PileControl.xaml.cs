@@ -51,6 +51,11 @@ namespace Octgn.Play.Gui
             scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, doubleAnimation);
         }
 
+        public override void ExecuteDefaultAction(Card card)
+        {
+            if (!ExecuteDefaultGroupAction()) ExecuteDefaultCardAction(card);
+        }
+
         #region Card DnD
 
         protected override void OnCardOver(object sender, CardsEventArgs e)
@@ -83,7 +88,7 @@ namespace Octgn.Play.Gui
             e.Handled = e.CanDrop = true;
             if (group.TryToManipulate())
                 foreach (Card c in e.Cards)
-                    c.MoveTo(group, e.FaceUp != null && e.FaceUp.Value, 0);
+                    c.MoveTo(group, e.FaceUp != null && e.FaceUp.Value, 0,false);
         }
 
         private void OnCardDroppedBottom(object sender, CardsEventArgs e)
@@ -91,7 +96,7 @@ namespace Octgn.Play.Gui
             e.Handled = e.CanDrop = true;
             if (group.TryToManipulate())
                 foreach (Card c in e.Cards)
-                    c.MoveTo(group, e.FaceUp != null && e.FaceUp.Value, group.Count);
+                    c.MoveTo(group, e.FaceUp != null && e.FaceUp.Value, group.Count,false);
         }
 
         private void OnCardOverBottom(object sender, CardsEventArgs e)
@@ -102,5 +107,18 @@ namespace Octgn.Play.Gui
         }
 
         #endregion
+
+        private void cardsCtrl_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            // Hack: animate the first card into a pile, 
+            // otherwise the CardControl sometimes has issues displaying anything.
+            // for some reason...
+            if (e.OldValue == null)
+            {
+                var anim = new DoubleAnimation(1.1, 1, new Duration(TimeSpan.FromMilliseconds(150)), FillBehavior.Stop);
+                cardsCtrl.turn.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+                cardsCtrl.turn.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+            }
+        }
     }
 }

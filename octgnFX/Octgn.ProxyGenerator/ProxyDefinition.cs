@@ -6,55 +6,43 @@
     using System.Xml;
 
     using Octgn.ProxyGenerator.Definitions;
+    using System.Drawing.Imaging;
 
     public class ProxyDefinition
     {
         public object Key { get; internal set; }
-        public TemplateSelector TemplateSelector { get; internal set; }
-        public FieldMapper FieldMapper { get; internal set; }
+        public TemplateManager TemplateSelector { get; internal set; }
+        public BlockManager BlockManager { get; internal set; }
         internal XmlDocument Document;
+
         public string RootPath { get; internal set; }
 
         public ProxyDefinition(object key, string path, string rootPath)
         {
             RootPath = rootPath;
             Key = key;
-            TemplateSelector = new TemplateSelector();
-            FieldMapper = new FieldMapper();
-            FieldMapper.TemplateSelector = TemplateSelector;
+            TemplateSelector = new TemplateManager();
             Load(path);
         }
 
         public Image GenerateProxyImage(Dictionary<string, string> values)
         {
-            values = FieldMapper.RemapDictionary(values);
-            CardDefinition cardDef = TemplateSelector.GetTemplate(values);
-            Image ret = ProxyGenerator.GenerateProxy(RootPath,cardDef, values);
-            return (ret);
-        }
-
-        public Image GenerateProxyImage(string templateID, Dictionary<string, string> values)
-        {
-            values = FieldMapper.RemapDictionary(values);
-            CardDefinition cardDef = TemplateSelector.GetTemplate(templateID);
-            Image ret = ProxyGenerator.GenerateProxy(RootPath,cardDef, values);
+            TemplateDefinition cardDef = TemplateSelector.GetTemplate(values);
+            Image ret = ProxyGenerator.GenerateProxy(BlockManager,RootPath,cardDef, values);
             return (ret);
         }
 
         public bool SaveProxyImage(Dictionary<string, string> values, string path)
         {
             Image proxy = GenerateProxyImage(values);
-            proxy.Save(path);
-            proxy.Dispose();
+            SaveProxyImage(proxy, path);
             return (File.Exists(path));
         }
 
-        public bool SaveProxyImage(string templateID, Dictionary<string, string> values, string path)
+        private void SaveProxyImage(Image proxy, string path)
         {
-            Image proxy = GenerateProxyImage(templateID, values);
-            proxy.Save(path);
+            proxy.Save(path, ImageFormat.Png);
             proxy.Dispose();
-            return (File.Exists(path));
         }
 
         internal void Load(string path)
@@ -64,7 +52,6 @@
                 Document.RemoveAll();
                 Document = null;
                 TemplateSelector.ClearTemplates();
-                FieldMapper.ClearMappings();
             }
             Document = new XmlDocument();
             Document.Load(path);
@@ -73,12 +60,84 @@
 
         internal void LoadTemplates()
         {
-            XmlNodeList cardList = Document.GetElementsByTagName("card");
-            foreach (XmlNode card in cardList)
+            XmlNodeList blockList = Document.GetElementsByTagName("blocks");
+            BlockManager = new BlockManager(RootPath);
+            BlockManager.LoadBlocks(blockList[0]);
+
+            XmlNodeList templateList = Document.GetElementsByTagName("template");
+            foreach (XmlNode template in templateList)
             {
-                CardDefinition cardDef = CardDefinition.LoadCardDefinition(card);
-                TemplateSelector.AddTemplate(cardDef);
+                TemplateDefinition templateDef = TemplateDefinition.LoadCardDefinition(template);
+                templateDef.rootPath = RootPath;
+                TemplateSelector.AddTemplate(templateDef);
             }
+            
+        }
+
+        public static Dictionary<string, string> GetBlockSources(string path)
+        {
+            Dictionary<string, string> ret = new Dictionary<string, string>();
+
+            XmlDocument doc = new XmlDocument();
+            doc.Load(path);
+
+            foreach (XmlNode node in doc.GetElementsByTagName("block"))
+            {
+                string id = node.Attributes["id"].Value;
+                if (node.Attributes["src"] != null)
+                {
+                    ret.Add(id, node.Attributes["src"].Value);
+                }
+                string fontPath = GetFontPath(node);
+                if (fontPath != string.Empty)
+                {
+                    ret.Add(id, fontPath);
+                }
+            }
+
+            doc.RemoveAll();
+            doc = null;
+
+            return (ret);
+        }
+
+        private static string GetFontPath(XmlNode node)
+        {
+            string ret = string.Empty;
+            foreach (XmlNode subNode in node.ChildNodes)
+            {
+                if (TemplateDefinition.SkipNode(subNode))
+                {
+                    continue;
+                }
+                if (subNode.Name == "text")
+                {
+                    if (subNode.Attributes["font"] != null)
+                    {
+                        ret = subNode.Attributes["font"].Value;
+                        break;
+                    }
+                }
+            }
+            return (ret);
+        }
+
+        public static List<string> GetTemplateSources(string path)
+        {
+            List<string> ret = new List<string>();
+
+            XmlDocument doc = new XmlDocument();
+            doc.Load(path);
+
+            foreach (XmlNode node in doc.GetElementsByTagName("template"))
+            {
+                ret.Add(node.Attributes["src"].Value);
+            }
+
+            doc.RemoveAll();
+            doc = null;
+
+            return (ret);
         }
     }
 }

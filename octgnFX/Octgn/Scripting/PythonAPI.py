@@ -1,4 +1,6 @@
 ﻿from System.IO import Directory, Path
+from System.Collections.Generic import *
+from System import *
 #Rotation constants
 Rot0 = 0
 Rot90 = 1
@@ -20,6 +22,9 @@ def wd(relativePath):
 def notify(message):
   _api.Notify(message)
 
+def notifyBar(color, message):
+  _api.NotifyBar(color, message)
+
 def whisper(message):
   _api.Whisper(message)
 
@@ -33,6 +38,9 @@ def webRead(url, timeout=0):
 def currentGameName():
   return _api.GetGameName()
 
+def playSound(name):
+  return _api.PlaySound(name)
+
 def turnNumber():
   return _api.TurnNumber()
 
@@ -45,13 +53,25 @@ def confirm(message):
 def askInteger(question, defaultAnswer):
   return _api.AskInteger(question, defaultAnswer)
 
+def askChoice(question, choices = [], colors = [], customButtons = []):
+  choiceList = List[String](choices)
+  if len(colors) != len(choices):
+    colors = []
+    for count in choices:
+      colors.append('None')
+  colorList = List[String](colors)
+  buttonList = List[String](customButtons)
+  apiResult = _api.AskChoice(question, choiceList, colorList, buttonList)
+  return apiResult
+
 def askMarker():
   apiResult = _api.AskMarker()
   if apiResult == None: return (None, 0)
   return ((apiResult.Item1, apiResult.Item2), apiResult.Item3)
 
-def askCard(restriction = None):
-  apiResult = _api.AskCard(restriction)
+def askCard(properties = {},operator = None):
+  realDick = Dictionary[String,String](properties)
+  apiResult = _api.AskCard(realDick,operator)
   if apiResult == None: return (None, 0)
   return (apiResult.Item1, apiResult.Item2)
 
@@ -66,6 +86,52 @@ def isTableBackgroundFlipped():
 
 def setTableBackgroundFlipped(flipped):
   _api.SetTableBackgroundFlipped(flipped)
+
+def getSetting(name,default):
+  return _api.GetSetting(name,default)
+
+def setSetting(name,value):
+  _api.SaveSetting(name,value)
+
+def remoteCall(player,func,args):
+  realArgs = convertToArgsString(args)
+  #notify("Sending remote call {}({}) to {}".format(func,realArgs,player))
+  _api.RemoteCall(player._id,func,realArgs)
+
+def update():
+  _api.Update()
+
+def convertToArgsString(obj):
+  if type(obj) is list:
+    retList = []
+    for c in obj:
+      retList.append(convertToString(c))
+    return ",".join(retList)
+  return convertToString(obj)
+
+def convertToString(obj):
+  if type(obj) is None:
+    return "None"
+  if type(obj) is list:
+    retList = []
+    for c in obj:
+      retList.append(convertToString(c))
+    return "[" + ",".join(retList) + "]"
+  if type(obj) is Player:
+    return "Player({})".format(obj._id)
+  if isinstance(obj, Group):
+    if type(obj) is Table:
+      return "table"
+    if type(obj) is Hand:
+      return "Hand({}, Player({}))".format(obj._id,obj.player._id)
+    return "Pile({}, '{}', Player({}))".format(obj._id,obj.name.replace("'","\'"),obj.player._id)
+  if type(obj) is Card:
+    return "Card({})".format(obj._id)
+  if type(obj) is Counter:
+    return "Counter({},{},{})".format(obj._id,obj.name,obj.player._id)
+  if isinstance(obj, basestring):
+    return "\"{}\"".format(obj);
+  return str(obj)
 
 class Markers(object):
   def __init__(self, card):
@@ -108,13 +174,10 @@ class Card(object):
   def __format__(self, format_spec):
     return '{#%d}' % self._id
   @property
-  def isAlternateImage(self): return _api.IsAlternateImage(self._id)
+  def alternate(self): return _api.CardAlternate(self._id)
   @property
-  def switchImage(self): _api.SwitchImage(self._id)
-  @property
-  def isAlternate(self): return _api.IsAlternate(self._id)
-  @property
-  def switchWithAlternate(self): _api.SwitchWithAlternate(self._id)
+  def alternates(self): return _api.CardAlternates(self._id)
+  def alternateProperty(self,alt,prop): return _api.CardAlternateProperty(self._id,alt,prop)
   @property
   def model(self): return _api.CardModel(self._id)
   @property
@@ -146,6 +209,8 @@ class Card(object):
   def markers(self):
     if self._markers == None: self._markers = Markers(self)
     return self._markers
+  def switchTo(self, alt = ""): 
+    _api.CardSwitchTo(self._id,alt)
   def moveTo(self, group, index = None):
     _api.CardMoveTo(self._id, group._id, index)
   def moveToBottom(self, pile):
@@ -184,6 +249,8 @@ class Card(object):
   def height():
     if Card._height == None: Card._fetchSize()
     return Card._height
+  def delete(self):
+    _api.CardDelete(self._id)
 
 class NamedObject(object):
   def __init__(self, id, name):
@@ -213,6 +280,13 @@ class Group(NamedObject):
     count = len(self)
     if count == 0: return None
     return self[rnd(0, count - 1)]
+  @property
+  def visibility(self): return _api.GroupGetVisibility(self._id)
+  def setVisibility(self, value): _api.GroupSetVisibility(self._id, value)
+  @property
+  def controller(self):
+    return Player(_api.GroupController(self._id))
+  def setController(self, player): _api.GroupSetController(self._id, player._id)
   def create(self, model, quantity = 1):
     ids = _api.Create(model, self._id, quantity)
     if quantity != 1:
@@ -230,6 +304,8 @@ class Table(Group):
       return [Card(id) for id in ids]
     else:
       return Card(ids[0]) if len(ids) == 1 else None    
+  def setBoardImage(self, source):
+    _api.SetBoardImage(source)
   _twoSided = None
   @staticmethod
   def isTwoSided():
@@ -277,6 +353,7 @@ class Player(object):
     self._hand = Hand(handId, self) if handId != 0 else None
     self._piles = idict((pair.Value, Pile(pair.Key, pair.Value, self)) for pair in _api.PlayerPiles(id))
   def __cmp__(self, other):
+    if other == None: return 1
     return cmp(self._id, other._id)
   def __hash__(self):
     return self._id
@@ -311,13 +388,21 @@ class Player(object):
   def setGlobalVariable(self,gname,gvalue): 
     _api.PlayerSetGlobalVariable(self._id,gname,gvalue)
 
-_id = _api.LocalPlayerId()
-me = Player(_id) if _id >= 0 else None
+if _api.IsSpectator() == false:
+  _id = _api.LocalPlayerId()
+  me = Player(_id) if _id >= 0 else None
+
 _id = _api.SharedPlayerId()
 shared = Player(_id) if _id >= 0 else None
 del _id
 players = [Player(id) for id in _api.AllPlayers()]
+
+def getPlayers():
+  return [Player(id) for id in _api.AllPlayers()]
+
 table = Table()
 cardProperties = [x.lower() for x in _api.CardProperties()]
 version = _api.OCTGN_Version()
 gameVersion = _api.GameDef_Version()
+def fd():
+  _api.ForceDisconnect()

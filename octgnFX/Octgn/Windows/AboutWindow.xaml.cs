@@ -1,16 +1,13 @@
 using System;
-using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Animation;
-using Octgn.Launcher;
+using System.Windows.Navigation;
+
+using Octgn.Controls;
 
 namespace Octgn.Windows
 {
-    using System.Diagnostics;
-    using System.Windows.Navigation;
-
-    using Octgn.Controls;
 
     /// <summary>
     /// Interaction logic for AboutWindow.xaml
@@ -27,6 +24,7 @@ namespace Octgn.Windows
             imgGravecorp.MouseUp += PictureMouseUp;
             imgOther.MouseUp += PictureMouseUp;
             imgRalig98.MouseUp += PictureMouseUp;
+            imgSoul1355.MouseUp += PictureMouseUp;
         }
 
         private void PictureMouseUp(object sender, MouseButtonEventArgs mouseButtonEventArgs)
@@ -111,7 +109,7 @@ namespace Octgn.Windows
 
         private void Hyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e)
         {
-            Process.Start(e.Uri.ToString());
-        }       
+            Program.LaunchUrl(e.Uri.ToString());
+        }
     }
 }

@@ -1,15 +1,27 @@
-﻿namespace Octgn.ViewModels
+﻿using System.Net;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Octgn.Core;
+using Octgn.Library;
+
+namespace Octgn.ViewModels
 {
     using System;
     using System.ComponentModel;
     using System.Linq;
+    using System.Reflection;
+
+    using log4net;
 
     using Octgn.Core.DataManagers;
+    using Octgn.DataNew.Entities;
 
     using Skylabs.Lobby;
 
     public class HostedGameViewModel : INotifyPropertyChanged
     {
+        internal static ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
         private Guid gameId;
 
         private string gameName;
@@ -18,7 +30,7 @@
 
         private string name;
 
-        private User user;
+        private string user;
 
         private int port;
 
@@ -27,6 +39,15 @@
         private DateTime startTime;
 
         private bool canPlay;
+
+        private bool _spectator;
+
+        private bool hasPassword;
+        private IPAddress _ipAddress;
+        private string _gameSource;
+        private ImageSource _userImage;
+
+        private Guid id;
 
         public Guid GameId
         {
@@ -92,7 +113,7 @@
             }
         }
 
-        public User User
+        public string User
         {
             get
             {
@@ -126,7 +147,7 @@
             }
         }
 
-        public Skylabs.Lobby.EHostedGame Status
+        public EHostedGame Status
         {
             get
             {
@@ -160,6 +181,23 @@
             }
         }
 
+        public string RunTime
+        {
+            get
+            {
+                return this.runTime;
+            }
+            set
+            {
+                if (value.Equals(this.runTime))
+                {
+                    return;
+                }
+                this.runTime = value;
+                this.OnPropertyChanged("RunTime");
+            }
+        }
+
         public bool CanPlay
         {
             get
@@ -177,32 +215,246 @@
             }
         }
 
+        public bool HasPassword
+        {
+            get
+            {
+                return this.hasPassword;
+            }
+            set
+            {
+                if (value.Equals(this.hasPassword))
+                {
+                    return;
+                }
+                this.hasPassword = value;
+                this.OnPropertyChanged("HasPassword");
+            }
+        }
+
+        public IPAddress IPAddress
+        {
+            get { return _ipAddress; }
+            set
+            {
+                if (value.Equals(_ipAddress))
+                    return;
+                _ipAddress = value;
+                this.OnPropertyChanged("IPAddress");
+            }
+        }
+
+        public string GameSource
+        {
+            get { return _gameSource; }
+            set
+            {
+                if (value.Equals(_gameSource)) return;
+                _gameSource = value;
+                this.OnPropertyChanged("GameSource");
+            }
+        }
+
+        public ImageSource UserImage
+        {
+            get { return _userImage; }
+            set
+            {
+                if (value.Equals(_userImage))
+                    return;
+                _userImage = value;
+                OnPropertyChanged("UserImage");
+            }
+        }
+
+        public Guid Id
+        {
+            get
+            {
+                return this.id;
+            }
+            set
+            {
+                if (value == this.Id) return;
+                this.id = value;
+                OnPropertyChanged("Id");
+            }
+        }
+
+        public bool Visible
+        {
+            get { return _visible; }
+            set
+            {
+                if (value == this._visible) return;
+                _visible = value;
+                OnPropertyChanged("Visible");
+            }
+        }
+
+        public bool Spectator
+        {
+            get { return _spectator; }
+            set
+            {
+                if (value == this._spectator) return;
+                _spectator = value;
+                OnPropertyChanged("Spectator");
+            }
+        }
+
+        public IHostedGameData Data { get; set; }
+
         public HostedGameViewModel(HostedGameData data)
         {
+            Data = data;
             var game = GameManager.Get().GetById(data.GameGuid);
+            this.Id = data.Id;
             this.GameId = data.GameGuid;
             this.GameVersion = data.GameVersion;
             this.Name = data.Name;
-            this.User = data.UserHosting;
+            this.User = data.Username;
             this.Port = data.Port;
             this.Status = data.GameStatus;
             this.StartTime = data.TimeStarted;
-            this.GameName = "{Unknown Game}";
+            this.GameName = data.GameName;
+            this.HasPassword = data.HasPassword;
+            this.Visible = true;
+            this.Spectator = data.Spectator;
+            UpdateVisibility();
+            switch (data.Source)
+            {
+                case HostedGameSource.Online:
+                    GameSource = "Online";
+                    break;
+                case HostedGameSource.Lan:
+                    GameSource = "Lan";
+                    break;
+            }
             if (game == null) return;
             this.CanPlay = true;
             this.GameName = game.Name;
+            this.IPAddress = data.IpAddress;
         }
-        public void Update()
+
+        public HostedGameViewModel(IHostedGameData data)
         {
-            var game = GameManager.Get().GetById(this.gameId);
+            Data = data;
+            var game = GameManager.Get().GetById(data.GameGuid);
+            this.Id = data.Id;
+            this.GameId = data.GameGuid;
+            this.GameVersion = data.GameVersion;
+            this.Name = data.Name;
+            this.User = data.Username;
+            this.Port = data.Port;
+            this.Status = data.GameStatus;
+            this.StartTime = data.TimeStarted;
+            this.GameName = data.GameName;
+            this.HasPassword = data.HasPassword;
+            this.Visible = true;
+            this.Spectator = data.Spectator;
+            UpdateVisibility();
+            switch (data.Source)
+            {
+                case HostedGameSource.Online:
+                    GameSource = "Online";
+                    break;
+                case HostedGameSource.Lan:
+                    GameSource = "Lan";
+                    break;
+            }
+            if (game == null) return;
+            this.CanPlay = true;
+            this.GameName = game.Name;
+            this.IPAddress = data.IpAddress;
+        }
+
+        public HostedGameViewModel()
+        {
+        }
+
+        private string previousIconUrl = "";
+
+        private string runTime;
+        private bool _visible;
+
+        public void UpdateVisibility()
+        {
+            if (Prefs.HideUninstalledGamesInList)
+            {
+                if (this.CanPlay == false)
+                {
+                    Visible = false;
+                    return;
+                }
+            }
+            if (Prefs.SpectateGames)
+            {
+                if (this.Status == EHostedGame.StartedHosting)
+                {
+                    Visible = false;
+                    return;
+                }
+                if (this.Spectator)
+                {
+                    Visible = true;
+                    return;
+                }
+                Visible = false;
+                return;
+            }
+            else
+            {
+                if (this.Status == EHostedGame.StartedHosting)
+                {
+                    Visible = true;
+                    return;
+                }
+                if (this.Status == EHostedGame.GameInProgress)
+                {
+                    Visible = false;
+                    return;
+                }
+                Visible = false;
+                return;
+            }
+        }
+
+        public void Update(HostedGameViewModel newer, Game[] games)
+        {
+            var game = games.FirstOrDefault(x => x.Id == this.gameId);
+            var u = new User(new User(User + "@" + AppConfig.ChatServerPath));
+            if (u.ApiUser != null)
+            {
+                if (!String.IsNullOrWhiteSpace(u.ApiUser.IconUrl))
+                {
+                    if (previousIconUrl != u.ApiUser.IconUrl)
+                    {
+                        try
+                        {
+                            previousIconUrl = u.ApiUser.IconUrl;
+                            UserImage = new BitmapImage(new Uri(u.ApiUser.IconUrl));
+                        }
+                        catch (Exception e)
+                        {
+                            Log.Error("Can't set UserImage to Uri", e);
+                        }
+                    }
+                }
+            }
+            var ts = new TimeSpan(DateTime.Now.Ticks - StartTime.Ticks);
+            RunTime = string.Format("{0}h {1}m", Math.Floor(ts.TotalHours), ts.Minutes);
+            if (newer != null)
+            {
+                Status = newer.Status;
+            }
+            UpdateVisibility();
             if (game == null)
             {
-                this.GameName = "{Unknown Game}";
                 this.CanPlay = false;
                 return;
             }
             this.CanPlay = true;
-            this.GameName = game.Name;
 
         }
 

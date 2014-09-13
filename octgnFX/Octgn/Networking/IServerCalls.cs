@@ -12,9 +12,12 @@ namespace Octgn.Networking
 	{ 
 		void Binary();
 		void Error(string msg);
-		void Hello(string nick, ulong pkey, string client, Version clientVer, Version octgnVer, Guid gameId, Version gameVersion);
-		void Settings(bool twoSidedTable);
-		void PlayerSettings(Player playerId, bool invertedTable);
+		void Boot(Player player, string reason);
+		void Hello(string nick, ulong pkey, string client, Version clientVer, Version octgnVer, Guid gameId, Version gameVersion, string password, bool spectator);
+		void HelloAgain(byte pid, string nick, ulong pkey, string client, Version clientVer, Version octgnVer, Guid gameId, Version gameVersion, string password);
+		void Settings(bool twoSidedTable, bool allowSpectators, bool muteSpectators);
+		void PlayerSettings(Player playerId, bool invertedTable, bool spectator);
+		void Leave(Player player);
 		void NickReq(string nick);
 		void Start();
 		void ResetReq();
@@ -26,12 +29,12 @@ namespace Octgn.Networking
 		void RandomAnswer1Req(int id, ulong value);
 		void RandomAnswer2Req(int id, ulong value);
 		void CounterReq(Counter counter, int value);
-		void LoadDeck(int[] id, ulong[] type, Group[] group);
+		void LoadDeck(int[] id, ulong[] type, Group[] group, string sleeve);
 		void CreateCard(int[] id, ulong[] type, Group group);
 		void CreateCardAt(int[] id, ulong[] key, Guid[] modelId, int[] x, int[] y, bool faceUp, bool persist);
-		void CreateAlias(int[] id, ulong[] type);
-		void MoveCardReq(Card card, Group group, int idx, bool faceUp);
-		void MoveCardAtReq(Card card, int x, int y, int idx, bool faceUp);
+		void CreateAliasDeprecated(int[] id, ulong[] type);
+		void MoveCardReq(Card card, Group group, int idx, bool faceUp, bool isScriptMove);
+		void MoveCardAtReq(Card card, int x, int y, int idx, bool isScriptMove, bool faceUp);
 		void Reveal(Card card, ulong revealed, Guid guid);
 		void RevealToReq(Player sendTo, Player[] revealTo, Card card, ulong[] encrypted);
 		void PeekReq(Card card);
@@ -41,14 +44,13 @@ namespace Octgn.Networking
 		void Highlight(Card card, Color? color);
 		void TurnReq(Card card, bool up);
 		void RotateReq(Card card, CardOrientation rot);
-		void Shuffle(Group group, int[] card);
-		void Shuffled(Group group, int[] card, short[] pos);
-		void UnaliasGrp(Group group);
-		void Unalias(int[] card, ulong[] type);
-		void AddMarkerReq(Card card, Guid id, string name, ushort count);
-		void RemoveMarkerReq(Card card, Guid id, string name, ushort count);
-		void SetMarkerReq(Card card, Guid id, string name, ushort count);
-		void TransferMarkerReq(Card from, Card to, Guid id, string name, ushort count);
+		void ShuffleDeprecated(Group group, int[] card);
+		void Shuffled(Player player, Group group, int[] card, short[] pos);
+		void UnaliasGrpDeprecated(Group group);
+		void UnaliasDeprecated(int[] card, ulong[] type);
+		void AddMarkerReq(Card card, Guid id, string name, ushort count, ushort origCount, bool isScriptChange);
+		void RemoveMarkerReq(Card card, Guid id, string name, ushort count, ushort origCount, bool isScriptChange);
+		void TransferMarkerReq(Card from, Card to, Guid id, string name, ushort count, ushort origCount, bool isScriptChange);
 		void PassToReq(ControllableObject id, Player to, bool requested);
 		void TakeFromReq(ControllableObject id, Player from);
 		void DontTakeReq(ControllableObject id, Player to);
@@ -61,11 +63,17 @@ namespace Octgn.Networking
 		void LookAtBottomReq(int uid, Group group, int count, bool look);
 		void StartLimitedReq(Guid[] packs);
 		void CancelLimitedReq();
-		void IsAlternateImage(Card card, bool isAlternateImage);
-		void PlayerSetGlobalVariable(Player player, string name, string val);
-		void SetGlobalVariable(string name, string val);
-		void SwitchWithAlternate(Card card);
+		void CardSwitchTo(Player player, Card card, string alternate);
+		void PlayerSetGlobalVariable(Player player, string name, string oldval, string val);
+		void SetGlobalVariable(string name, string oldval, string val);
 		void Ping();
 		void IsTableBackgroundFlipped(bool isFlipped);
+		void PlaySound(Player player, string name);
+		void Ready(Player player);
+		void RemoteCall(Player player, string function, string args);
+		void GameStateReq(Player player);
+		void GameState(Player toPlayer, string state);
+		void DeleteCard(Card card, Player player);
+		void AddPacksReq(Guid[] packs, bool selfOnly);
 	}
 }

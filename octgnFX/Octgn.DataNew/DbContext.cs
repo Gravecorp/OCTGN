@@ -17,8 +17,6 @@
     public class DbContext : IDisposable
     {
         internal static ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-        private static readonly string DatabasePath = Path.Combine(SimpleConfig.DataDirectory, "Database");
-        private static readonly string DatabaseFile = Path.Combine(DatabasePath, "master.db");
 
         internal static DbContext Context { get; set; }
         public static DbContext Get()
@@ -38,8 +36,26 @@
         {
             get
             {
+                return SetQuery;
+            }
+        }
+
+        public CollectionQuery<Set> SetQuery
+        {
+            get
+            {
                 return Db.Query<Set>();
             }
+        }
+
+        public IEnumerable<Set> SetsById(Guid setId)
+        {
+            return Db.Query<Set>().By(x => x.Id, Op.Eq, setId);
+        }
+
+        public Game GameById(Guid gameId)
+        {
+            return Db.Query<Game>().By(x => x.Id, Op.Eq, gameId).FirstOrDefault();
         }
 
         public IEnumerable<Card> Cards
@@ -71,14 +87,14 @@
         internal DbContext()
         {
             var config = new FileDbConfiguration()
-                .SetDirectory(Paths.DataDirectory)
-                .DefineCollection<Game>("Games")
+                .SetDirectory(Config.Instance.Paths.DataDirectory)
+                .DefineCollection<Game>("GameDatabase")
                 .SetPart(x => x.Property(y => y.Id))
                 .SetPart(x => x.File("definition.xml"))
                 .SetSerializer<GameSerializer>()
                 .Conf()
                 .DefineCollection<Set>("Sets")
-                .OverrideRoot(x => x.Directory("Games"))
+                .OverrideRoot(x => x.Directory("GameDatabase"))
                 .SetPart(x => x.Property(y => y.GameId))
                 .SetPart(x => x.Directory("Sets"))
                 .SetPart(x => x.Property(y => y.Id))
@@ -87,12 +103,12 @@
                 .Conf()
                 .DefineCollection<GameScript>("Scripts")
                 .SetSteril()
-                //.OverrideRoot(x => x.Directory("Games"))
+                //.OverrideRoot(x => x.Directory("GameDatabase"))
                 //.SetPart(x => x.Property(y => y.GameId))
                 .Conf()
                 .DefineCollection<ProxyDefinition>("Proxies")
                 .SetSteril()
-                //.OverrideRoot(x => x.Directory("Games"))
+                //.OverrideRoot(x => x.Directory("GameDatabase"))
                 //.SetPart(x => x.Property(y=>y.Key))
                 .Conf()
                 .SetCacheProvider<FullCacheProvider>();
@@ -110,21 +126,46 @@
             throw new NotImplementedException();
         }
 
-        public void Remove(Game game)
+        public void Invalidate(Game game)
         {
             var g = Games.FirstOrDefault(x => x.Id == game.Id);
             if (g == null) return;
-            throw new NotImplementedException();
+            foreach (var s in Sets.Where(x => x.GameId == g.Id).ToArray())
+            {
+                Db.Config.Cache.InvalidateObject(s);
+            }
+            foreach (var p in ProxyDefinitions.Where(x => (Guid)x.Key == g.Id).ToArray())
+            {
+                Db.Config.Cache.InvalidateObject(p);
+            }
+            foreach (var s in Scripts.Where(x => x.GameId == g.Id).ToArray())
+            {
+                Db.Config.Cache.InvalidateObject(s);
+            }
+            Db.Config.Cache.InvalidateObject(g);
         }
 
-        public void Remove(Set set)
+        public void Invalidate(Set set)
         {
             var s = Sets.FirstOrDefault(x => x.Id == set.Id);
             if (s == null) return;
-            throw new NotImplementedException();
+            Db.Config.Cache.InvalidateObject(s);
         }
 
-
+        public void Invalidate(ProxyDefinition proxy)
+        {
+            foreach(var p in ProxyDefinitions.Where(x => x.Key == proxy.Key))
+            {
+                Db.Config.Cache.InvalidateObject(p);
+            }
+        }
+        
+        public void Invalidate(GameScript script)
+        {
+            var s = Scripts.FirstOrDefault(x => x.Path == script.Path);
+            if (s == null) return;
+            Db.Config.Cache.InvalidateObject(s);
+        }
 
         public void Dispose()
         {

@@ -1,13 +1,18 @@
 using System;
+using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
-using Octgn.Data;
+using IronPython.Modules;
+using Octgn.Annotations;
 
 namespace Octgn.DeckBuilder
 {
-    public partial class FilterControl
+    using System.Linq;
+
+    public partial class FilterControl: INotifyPropertyChanged
     {
         private static readonly SqlComparison[] StringComparisons = new[]
                                             {
@@ -15,7 +20,8 @@ namespace Octgn.DeckBuilder
                                                 new SqlComparison("Does Not Contain", "Card.[{0}] NOT LIKE '%{1}%'") { EscapeQuotes = true },
                                                 new SqlComparison("Starts with", "Card.[{0}] LIKE '{1}%'") { EscapeQuotes = true },
                                                 new SqlComparison("Ends with", "Card.[{0}] LIKE '%{1}'") { EscapeQuotes = true },
-                                                new SqlComparison("Equals", "Card.[{0}] = '{1}'") { EscapeQuotes = true}
+                                                new SqlComparison("Equals", "Card.[{0}] = '{1}'") { EscapeQuotes = true},
+                                                new SqlComparison("Does Not Equal", "Card.[{0}] <> '{1}'") {EscapeQuotes = true}
                                             };
 
         private static readonly SqlComparison[] IntegerComparisons = new SqlComparison[]
@@ -28,10 +34,57 @@ namespace Octgn.DeckBuilder
         private static readonly SqlComparison[] CharComparisons = new[]
                                             {
                                                 new SqlComparison("Equals", "Card.[{0}] = '{1}'") {EscapeQuotes = true},
+                                                new SqlComparison("Does Not Equal", "Card.[{0}] <> '{1}'") {EscapeQuotes = true},
                                                 new SqlComparison("Greater than", "Card.[{0}] > '{1}'") {EscapeQuotes = true},
                                                 new SqlComparison("Less than", "Card.[{0}] < '{1}'") {EscapeQuotes = true},
                                                 new CharInComparison("One of", "Card.[{0}] IN ({1})")
                                             };
+
+        public string CompareAgainstText
+        {
+            get { return _compareAgainstText; }
+            set
+            {
+                if (value == _compareAgainstText) return;
+                _compareAgainstText = value;
+                OnPropertyChanged("CompareAgainstText");
+                OnPropertyChanged("FilterButtonText");
+            }
+        }
+
+        public string FilterButtonText
+        {
+            get
+            {
+                if (comparisonList != null)
+                {
+                    if (comparisonList.SelectedItem == null)
+                    {
+                        return "Null";
+                    }
+                    if (_property is SetPropertyDef)
+                    {
+                        if (ExcludeSet)
+                            return string.Format("Set Does Not Equal `{0}`", ((DataNew.Entities.Set)comparisonList.SelectedItem).Name);
+                        else
+                            return string.Format("Set Equals `{0}`", ((DataNew.Entities.Set) comparisonList.SelectedItem).Name);
+                    }
+
+                    return string.Format("{0} {1} `{2}`", _property.Name,
+                        ((SqlComparison) comparisonList.SelectedItem).Name,
+                        CompareAgainstText);
+                }
+                return "Null";
+            }
+        }
+
+        public DataNew.Entities.PropertyDef Property
+        {
+            get
+            {
+                return _property;
+            }
+        }
 
         private DataNew.Entities.PropertyDef _property;
 
@@ -44,16 +97,68 @@ namespace Octgn.DeckBuilder
                                           if (_property == null) return; // Happens when the control is unloaded
                                           CreateComparisons();
                                       };
+            LinkPopUp.IsOpen = true;
+        }
+
+        private void OnAnyLinkClicked(object sender, EventArgs eventArgs)
+        {
+            if (sender == this) return;
+            this.ClosePopUp();
+        }
+
+        public void SetFromSave(DataNew.Entities.Game loadedGame, SearchFilterItem search)
+        {
+                comparisonText.Text = search.CompareValue;
+            if (search.IsSetProperty)
+            {
+                comparisonList.SelectedItem =
+                    comparisonList.Items.OfType<DataNew.Entities.Set>()
+                                  .FirstOrDefault(x => x.Id == Guid.Parse(search.SelectedComparison));
+                excludeSetCheck.IsChecked = search.ExcludeSetProperty;
+            }
+            else
+            {
+                comparisonList.SelectedItem =
+                    comparisonList.Items.OfType<SqlComparison>()
+                                  .FirstOrDefault(
+                                      x =>
+                                      x.Name.Equals(search.SelectedComparison, StringComparison.InvariantCultureIgnoreCase));
+            }
+            LinkPopUp.IsOpen = false;
+            //}
         }
 
         public event EventHandler RemoveFilter;
+        public event RoutedEventHandler UpdateFilters;
+
+        public bool IsOr;
+        public bool ExcludeSet;
+        private bool JustClosed;
+        private string _linkText;
+        private string _compareAgainstText;
+        private SqlComparison _selectedComparison;
 
         public string GetSqlCondition()
         {
-            if (comparisonList.SelectedItem == null) return "";
+            if (comparisonList.SelectedItem == null)
+            {
+                return "";
+            }
             if (_property is SetPropertyDef)
-                return "set_id = '" + ((DataNew.Entities.Set)comparisonList.SelectedItem).Id.ToString("D") + "'";
-            return ((SqlComparison) comparisonList.SelectedItem).GetSql(_property.Name, comparisonText.Text);
+            {
+                if (ExcludeSet)
+                {
+                    IsOr = false;
+                    return "set_id <> '" + ((DataNew.Entities.Set)comparisonList.SelectedItem).Id.ToString("D") + "'";
+                }
+                else
+                {
+                    IsOr = true;
+                    return "set_id = '" + ((DataNew.Entities.Set)comparisonList.SelectedItem).Id.ToString("D") + "'";
+                }
+            }
+            
+            return ((SqlComparison)comparisonList.SelectedItem).GetSql(_property.Name, comparisonText.Text);
         }
 
         private void CreateComparisons()
@@ -62,8 +167,11 @@ namespace Octgn.DeckBuilder
             {
                 comparisonList.Width = 262;
                 comparisonText.Visibility = Visibility.Collapsed;
+                excludeSetGroup.Width = 262;
+                excludeSetLabel.Width = 244;
+                excludeSetGroup.Visibility = Visibility.Visible;
 
-                comparisonList.ItemsSource = ((SetPropertyDef) _property).Sets;
+                comparisonList.ItemsSource = ((SetPropertyDef)_property).Sets;
             }
             else
             {
@@ -93,6 +201,96 @@ namespace Octgn.DeckBuilder
             e.Handled = true;
             if (RemoveFilter != null)
                 RemoveFilter(TemplatedParent, e);
+            if (UpdateFilters != null)
+                UpdateFilters(TemplatedParent, e);
+        }
+
+        #region INotifyPropertyChanged
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        [NotifyPropertyChangedInvocator]
+        protected virtual void OnPropertyChanged(string propertyName)
+        {
+            var handler = PropertyChanged;
+            if (handler != null)
+            {
+                handler(this, new PropertyChangedEventArgs(propertyName));
+            }
+        }
+        #endregion
+
+        private void ComparisonListChanged(object sender, SelectionChangedEventArgs e)
+        {
+            OnPropertyChanged("FilterButtonText");
+        }
+
+        private void ExcludeSetCheckChanged(object sender, RoutedEventArgs e)
+        {
+            ExcludeSet = (bool)excludeSetCheck.IsChecked;
+            OnPropertyChanged("FilterButtonText");
+        }
+
+
+        private void FilterButtonClicked(object sender, RoutedEventArgs e)
+        {
+            if (JustClosed)
+            {
+                this.FilterButton.IsChecked = false;
+                JustClosed = false;
+            }
+            else
+            {
+                LinkPopUp.IsOpen = true;
+            }
+        }
+
+        public void ClosePopUp()
+        {
+            LinkPopUp.IsOpen = false;
+        }
+
+        private void LinkPopUp_Opened(object sender, EventArgs e)
+        {
+            if (comparisonText != null)
+                comparisonText.Focus();
+            this.FilterButton.IsChecked = true;
+
+        }
+
+        private void LinkPopUp_Closed(object sender, EventArgs e)
+        {
+            this.FilterButton.IsChecked = false;
+            JustClosed = true;
+            if (UpdateFilters != null)
+                UpdateFilters(TemplatedParent, null);
+        }
+
+        private void FilterButton_MouseEnter(object sender, MouseEventArgs e)
+        {
+            JustClosed = false;
+        }
+
+        private void FilterKeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.Key.Equals(Key.Enter))
+            {
+                ClosePopUp();
+                return;
+            }
+
+            if (UpdateFilters != null && Octgn.Core.Prefs.InstantSearch && !(KeysDown().Any()))
+                UpdateFilters(sender, e);
+        }
+        //only search when all keys have been lifted. 
+        //this should reduce the number of searches during rappid key presses
+        //where lag would be most noticeable.
+        private static System.Collections.Generic.IEnumerable<Key> KeysDown()
+        {
+            foreach (Key key in Enum.GetValues(typeof(Key)))
+            {
+                if (key != Key.None && Keyboard.IsKeyDown(key))
+                    yield return key;
+            }
         }
     }
 
@@ -120,24 +318,24 @@ namespace Octgn.DeckBuilder
             {
                 case '\'':
                     return "''";
-                
+
                 case '*':
                     return "[*]";
-                    
+
                 case '%':
                     return "[%]";
-                    
+
                 case '[':
                     return "[[]";
-                    
+
                 case ']':
                     return "[]]";
-                    
+
                 default:
                     return original.ToString();
             }
         }
-        
+
         public virtual string GetSql(string field, string value)
         {
             if (EscapeQuotes)

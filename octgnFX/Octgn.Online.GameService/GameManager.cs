@@ -1,60 +1,110 @@
-﻿namespace Octgn.Online.GameService
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Reflection;
+using log4net;
+using Octgn.Library;
+using Octgn.Library.Networking;
+using Skylabs.Lobby;
+
+namespace Octgn.Online.GameService
 {
-    using System;
-
-    using Microsoft.AspNet.SignalR;
-    using Microsoft.AspNet.SignalR.Hubs;
-    using Microsoft.Owin.Hosting;
-
-    using Octgn.Online.GameService.Hubs;
-
-    using Owin;
-
-    using System.Configuration;
-    using System.Reflection;
-
-    using log4net;
-    public class GameManager
+    public class GameManager : IDisposable
     {
-        #region singleton
-        internal static ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-        private static GameManager current;
-        private static readonly object Locker = new object();
-        public static GameManager GetContext()
+        #region Singleton
+
+        internal static GameManager SingletonContext { get; set; }
+
+        private static readonly object GameManagerSingletonLocker = new object();
+
+        public static GameManager Instance
         {
-            lock (Locker)
+            get
             {
-                return current ?? (current = new GameManager());
+                if (SingletonContext == null)
+                {
+                    lock (GameManagerSingletonLocker)
+                    {
+                        if (SingletonContext == null)
+                        {
+                            SingletonContext = new GameManager();
+                        }
+                    }
+                }
+                return SingletonContext;
             }
         }
-        #endregion
 
-        internal IDisposable Host;
+        #endregion Singleton
 
-        public GameManager()
-        {
-            Log.Info("Creating");
-            Log.Info("Created");
-        }
+        internal static ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
+        internal GameBroadcastListener GameListener;
 
         public void Start()
         {
-            Log.Info("Starting");
-            Host = WebApplication.Start<GameManager>(ConfigurationManager.AppSettings["GameManagerHost"]);
-            Log.Info("Started");
+            GameListener = new GameBroadcastListener(AppConfig.Instance.BroadcastPort);
+            GameListener.StartListening();
         }
 
-        public void Stop()
+        public IEnumerable<HostedGameData> Games
         {
-            Log.Info("Stopping");
-            if (Host != null)
-                Host.Dispose();
-            Log.Info("Stopped");
+            get
+            {
+                return GameListener.Games
+                    .Select(x => new HostedGameData(x.Id,x.GameGuid,x.GameVersion,x.Port
+                        ,x.Name,new User(x.Username + "@of.octgn.net"),x.TimeStarted,x.GameName,x.HasPassword,Ports.ExternalIp,x.Source ,x.GameStatus,x.Spectator))
+                    .ToArray();
+            }
         }
 
-        public void Configuration(IAppBuilder app)
+        public Guid HostGame(HostGameRequest req, User u)
         {
-            app.MapHubs("/GameManager", new HubConfiguration());
+            var bport = AppConfig.Instance.BroadcastPort;
+
+            var game = new HostedGame(Ports.NextPort, req.GameGuid, req.GameVersion,
+                req.GameName, req.Name, req.Password, u,req.Spectators ,false, true,req.RequestId,bport,req.SasVersion);
+
+            if (game.StartProcess(true))
+            {
+                // Try to kill every other game this asshole started before this one.
+                var others = GameListener.Games.Where(x => x.Username.Equals(u.UserName, StringComparison.InvariantCultureIgnoreCase))
+                    .ToArray();
+                foreach (var g in others)
+                {
+                    g.TryKillGame();
+                }
+                return game.Id;
+            }
+            return Guid.Empty;
+        }
+
+        #region Implementation of IDisposable
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
+        {
+            if(GameListener != null)
+                GameListener.Dispose();
+        }
+
+        #endregion
+
+        public void KillGame(Guid id)
+        {
+            var g = GameListener.Games.FirstOrDefault(x => x.Id == id);
+            if(g == null)
+                throw new Exception("Game with id " + id + " can't be found.");
+
+            var p = Process.GetProcessById(g.ProcessId);
+            if(p == null)
+                throw new Exception("Can't find process with id " + g.ProcessId);
+
+            X.Instance.Try(p.Kill);
+            
         }
     }
 }

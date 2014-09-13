@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Markup;
 
 [assembly: AssemblyTitle("Octgn")]
 [assembly: AssemblyDescription("Octgn 3.0 client")]
@@ -42,5 +43,5 @@ using System.Windows;
 // You can specify all the values or you can default the Revision and Build Numbers
 // by using the '*' as shown below:
 
-[assembly: AssemblyVersion("3.0.11.56")]
-[assembly: AssemblyFileVersion("3.0.11.56")]
+[assembly: AssemblyVersion("3.1.150.335")]
+[assembly: AssemblyFileVersion("3.1.150.335")]

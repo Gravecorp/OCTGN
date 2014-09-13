@@ -10,6 +10,8 @@
     {
         Guid GameId { get; }
         bool IsShared { get; }
+        string Notes { get; }
+        int SleeveId { get; }
         IEnumerable<ISection> Sections { get; }
     }
 
@@ -17,7 +19,14 @@
     {
         public Guid GameId { get; set; }
         public bool IsShared { get; set; }
+        public string Notes { get; set; }
+        public int SleeveId { get; set; }
         public IEnumerable<ISection> Sections { get; set; }
+
+        public Deck()
+        {
+            Notes = "";
+        }
     }
 
     public class ObservableDeck : IDeck, INotifyPropertyChanged
@@ -27,6 +36,10 @@
         private bool isShared;
 
         private IEnumerable<ObservableSection> sections;
+
+        private string notes;
+
+        private int sleeveId;
 
         public Guid GameId
         {
@@ -71,10 +84,39 @@
                     this.sections = new ObservableCollection<ObservableSection>(value.Select(x => new ObservableSection
                                                                                                       {
                                                                                                           Cards = new ObservableCollection<IMultiCard>(x.Cards.ToArray()),
-                                                                                                          Name = x.Name
+                                                                                                          Name = x.Name.Clone() as string,
+                                                                                                          Shared = x.Shared
                                                                                                       }));
                 }
                 OnPropertyChanged("Sections");
+            }
+        }
+
+        public string Notes
+        {
+            get
+            {
+                return this.notes;
+            }
+            set
+            {
+                if (this.notes == value) return;
+                this.notes = value;
+                OnPropertyChanged("Notes");
+            }
+        }
+
+        public int SleeveId
+        {
+            get
+            {
+                return this.sleeveId;
+            }
+            set
+            {
+                if (this.sleeveId == value) return;
+                this.sleeveId = value;
+                OnPropertyChanged("SleeveId");
             }
         }
 

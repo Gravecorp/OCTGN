@@ -5,25 +5,28 @@
     using System.Diagnostics;
     using System.Linq;
     using System.Net;
+    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
     using System.Windows;
     using System.Windows.Controls;
     using System.Windows.Forms;
 
-    using Octgn.Core.DataExtensionMethods;
+    using Octgn.Core;
     using Octgn.Core.DataManagers;
-    using Octgn.Definitions;
     using Octgn.Library.Exceptions;
+    using Octgn.Networking;
     using Octgn.ViewModels;
 
     using Skylabs.Lobby;
 
-    using Client = Octgn.Networking.Client;
+    using log4net;
+
     using UserControl = System.Windows.Controls.UserControl;
 
-    public partial class HostGameSettings : UserControl
+    public partial class HostGameSettings : UserControl,IDisposable
     {
+        internal static ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         public event Action<object, DialogResult> OnClose;
         protected virtual void FireOnClose(object sender, DialogResult result)
         {
@@ -48,6 +51,7 @@
         public string Gamename { get; private set; }
         public string Password { get; private set; }
         public string Username { get; set; }
+        public bool Specators { get; set; }
         public DataNew.Entities.Game Game { get; private set; }
         public bool SuccessfulHost { get; private set; }
 
@@ -59,17 +63,35 @@
         public HostGameSettings()
         {
             InitializeComponent();
+            Specators = true;
+            Program.IsHost = true;
+            Program.IsMatchmaking = false;
             Games = new ObservableCollection<DataGameViewModel>();
             Program.LobbyClient.OnDataReceived += LobbyClientOnDataReceviedCaller;
             Program.LobbyClient.OnLoginComplete += LobbyClientOnLoginComplete;
             Program.LobbyClient.OnDisconnect += LobbyClientOnDisconnect;
-            TextBoxGameName.Text = Prefs.LastRoomName;
+            TextBoxGameName.Text = Prefs.LastRoomName ?? Skylabs.Lobby.Randomness.RandomRoomName();
             CheckBoxIsLocalGame.IsChecked = !Program.LobbyClient.IsConnected;
             CheckBoxIsLocalGame.IsEnabled = Program.LobbyClient.IsConnected;
+            LabelIsLocalGame.IsEnabled = Program.LobbyClient.IsConnected;
             lastHostedGameType = Prefs.LastHostedGameType;
             TextBoxUserName.Text = (Program.LobbyClient.IsConnected == false 
                 || Program.LobbyClient.Me == null 
                 || Program.LobbyClient.Me.UserName == null) ? Prefs.Nickname : Program.LobbyClient.Me.UserName;
+			Program.OnOptionsChanged += ProgramOnOptionsChanged;
+            TextBoxUserName.IsReadOnly = Program.LobbyClient.IsConnected;
+            if(Program.LobbyClient.IsConnected)
+                PasswordGame.IsEnabled = SubscriptionModule.Get().IsSubscribed ?? false;
+            else
+            {
+                PasswordGame.IsEnabled = true;
+            }
+            StackPanelIsLocalGame.Visibility = Prefs.EnableAdvancedOptions ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void ProgramOnOptionsChanged()
+        {
+            StackPanelIsLocalGame.Visibility = Prefs.EnableAdvancedOptions ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void LobbyClientOnDisconnect(object sender, EventArgs e)
@@ -78,17 +100,20 @@
                 { 
                     CheckBoxIsLocalGame.IsChecked = true;
                     CheckBoxIsLocalGame.IsEnabled = false;
-                    TextBoxUserName.IsEnabled = true;
+                    LabelIsLocalGame.IsEnabled = false;
+                    TextBoxUserName.IsReadOnly = false;
                 }));
         }
 
         private void LobbyClientOnLoginComplete(object sender, LoginResults results)
         {
+            if (results != LoginResults.Success) return;
             Dispatcher.Invoke(new Action(() =>
                 { 
                     CheckBoxIsLocalGame.IsChecked = false;
                     CheckBoxIsLocalGame.IsEnabled = true;
-                    TextBoxUserName.IsEnabled = false;
+                    LabelIsLocalGame.IsEnabled = true;
+                    TextBoxUserName.IsReadOnly = true;
                     TextBoxUserName.Text = Program.LobbyClient.Me.UserName;
                 }));
             
@@ -108,10 +133,19 @@
         {
             if (string.IsNullOrWhiteSpace(TextBoxGameName.Text))
                 this.SetError("You must enter a game name");
-            else if (ComboBoxGame.SelectedIndex == -1)
-                this.SetError("You must select a game");
+            else if (ComboBoxGame.SelectedIndex == -1) this.SetError("You must select a game");
             else
-                this.SetError();
+            {
+                if(String.IsNullOrWhiteSpace(PasswordGame.Password))
+                    this.SetError();
+                else
+                {
+                    if(PasswordGame.Password.Contains(":,:") || PasswordGame.Password.Contains("=") || PasswordGame.Password.Contains("-") || PasswordGame.Password.Contains(" "))
+                        this.SetError("The password has invalid characters");
+                    else
+                        this.SetError();
+                }
+            }
         }
 
         void SetError(string error = "")
@@ -123,27 +157,24 @@
         #region LobbyEvents
         private void LobbyClientOnDataReceviedCaller(object sender, DataRecType type, object data)
         {
-        //    Dispatcher.Invoke(new Action(() => this.LobbyClientOnOnDataReceived(sender, type, data)));
-            
-        //}
-        //private void LobbyClientOnOnDataReceived(object sender, DataRecType type, object data)
-        //{
             try
             {
                 if (type == DataRecType.HostedGameReady)
                 {
-                    var port = data as Int32?;
-                    if (port == null)
+                    var gameData = data as HostedGameData;
+                    if (gameData == null)
                         throw new Exception("Could not start game.");
                     var game = this.Game;
-                    Program.LobbyClient.CurrentHostedGamePort = (int)port;
-                    Program.GameSettings.UseTwoSidedTable = true;
-                    Program.Game = new Game(GameDef.FromO8G(game.GetFullPath()),Program.LobbyClient.Me.UserName);
+                    Program.LobbyClient.CurrentHostedGamePort = (int)gameData.Port;
+                    //Program.GameSettings.UseTwoSidedTable = true;
+                    Program.GameEngine = new GameEngine(game,Program.LobbyClient.Me.UserName,false,this.Password);
                     Program.IsHost = true;
+                    Program.IsMatchmaking = false;
 
-                    var hostAddress = Dns.GetHostAddresses(Program.GameServerPath).First();
+                    var hostAddress = Dns.GetHostAddresses(AppConfig.GameServerPath).First();
 
-                    Program.Client = new Client(hostAddress, (int)port);
+					// Should use gameData.IpAddress sometime.
+                    Program.Client = new ClientSocket(hostAddress, (int)gameData.Port);
                     Program.Client.Connect();
                     SuccessfulHost = true;
                 }
@@ -184,6 +215,7 @@
 
         private void Close(DialogResult result)
         {
+            Program.OnOptionsChanged -= ProgramOnOptionsChanged;
             Program.LobbyClient.OnDataReceived -= LobbyClientOnDataReceviedCaller;
             IsLocalGame = CheckBoxIsLocalGame.IsChecked ?? false;
             Gamename = TextBoxGameName.Text;
@@ -198,40 +230,67 @@
         {
             BorderHostGame.IsEnabled = false;
             ProgressBar.Visibility = Visibility.Visible;
+            ProgressBar.IsIndeterminate = true;
         }
 
         void EndWait()
         {
             BorderHostGame.IsEnabled = true;
             ProgressBar.Visibility = Visibility.Hidden;
+            ProgressBar.IsIndeterminate = false;
         }
 
         void StartLocalGame(DataNew.Entities.Game game, string name, string password)
         {
             var hostport = new Random().Next(5000,6000);
             while (!Networking.IsPortAvailable(hostport)) hostport++;
-            var hs = new HostedGame(hostport, game.Id, game.Version, game.Name, name, Password, new User(Username + "@" + Program.ChatServerPath), true);
+            var hs = new HostedGame(hostport, game.Id, game.Version, game.Name, name
+                , Password, new User(Username + "@" + AppConfig.ChatServerPath),Specators, true);
             if (!hs.StartProcess())
             {
                 throw new UserMessageException("Cannot start local game. You may be missing a file.");
             }
             Prefs.Nickname = Username;
             Program.LobbyClient.CurrentHostedGamePort = hostport;
-            Program.GameSettings.UseTwoSidedTable = true;
-            Program.Game = new Game(GameDef.FromO8G(game.GetFullPath()), Username, true);
+            Program.GameEngine = new GameEngine(game, Username, false, password, true);
+//            Program.GameSettings.UseTwoSidedTable = true;
+            Program.CurrentOnlineGameName = name;
             Program.IsHost = true;
+            Program.IsMatchmaking = false;
 
             var ip = IPAddress.Parse("127.0.0.1");
 
-            Program.Client = new Client(ip, hostport);
-            Program.Client.Connect();
-            SuccessfulHost = true;
+            for (var i = 0; i < 5; i++)
+            {
+                try
+                {
+                    Program.Client = new ClientSocket(ip, hostport);
+                    Program.Client.Connect();
+                    SuccessfulHost = true;
+                    return;
+                }
+                catch (Exception e)
+                {
+                    Log.Warn("Start local game error",e);
+                    if (i == 4) throw;
+                }
+                Thread.Sleep(2000);
+            }
+            
         }
 
         void StartOnlineGame(DataNew.Entities.Game game, string name, string password)
         {
+            var client = new Octgn.Site.Api.ApiClient();
+            if (!client.IsGameServerRunning(Program.LobbyClient.Username, Program.LobbyClient.Password))
+            {
+                throw new UserMessageException("The game server is currently down. Please try again later.");
+            }
             Program.CurrentOnlineGameName = name;
-            Program.LobbyClient.BeginHostGame(game, name);
+            // TODO: Replace this with a server-side check
+            password = SubscriptionModule.Get().IsSubscribed == true ? password : String.Empty;
+            Program.LobbyClient.BeginHostGame(game, name, password, game.Name, 
+                typeof(Octgn.Server.Server).Assembly.GetName().Version,Specators);
         }
 
         #endregion
@@ -263,16 +322,23 @@
                     var error = "";
                     if (continueTask.IsFaulted)
                     {
-                        error = "There was a problem, please try again.";
+                        if (continueTask.Exception != null &&  continueTask.Exception.InnerExceptions.OfType<UserMessageException>().Any())
+                        {
+                            error =
+                                continueTask.Exception.InnerExceptions.OfType<UserMessageException>().First().Message;
+                        }
+                        else
+                            error = "There was a problem, please try again.";
+                        Log.Warn("Start Game Error",continueTask.Exception);
                         SuccessfulHost = false;
                     }
                     else
                     {
-                        var i = 0;
-                        while (!SuccessfulHost || i < 10)
+                        var startTime = DateTime.Now;
+                        while (new TimeSpan(DateTime.Now.Ticks - startTime.Ticks).TotalMinutes <=1)
                         {
+                            if (SuccessfulHost) break;
                             Thread.Sleep(1000);
-                            i++;
                         }
                     }
                     Dispatcher.Invoke(new Action(() =>
@@ -294,8 +360,50 @@
 
         private void ButtonRandomizeUserNameClick(object sender, RoutedEventArgs e)
         {
-            TextBoxUserName.Text = Randomness.GrabRandomJargonWord() + "-" + Randomness.GrabRandomNounWord();
+            if (Program.LobbyClient.IsConnected == false)
+                TextBoxUserName.Text = Randomness.GrabRandomJargonWord() + "-" + Randomness.GrabRandomNounWord();
         }
         #endregion
+
+        #region Implementation of IDisposable
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
+        {
+            if (OnClose != null)
+            {
+                foreach (var d in OnClose.GetInvocationList())
+                {
+                    OnClose -= (Action<object, DialogResult>)d;
+                }
+            }
+            Program.LobbyClient.OnDataReceived -= LobbyClientOnDataReceviedCaller;
+            Program.LobbyClient.OnLoginComplete -= LobbyClientOnLoginComplete;
+            Program.LobbyClient.OnDisconnect -= LobbyClientOnDisconnect;
+        }
+
+        #endregion
+
+        private void CheckBoxIsLocalGame_OnChecked(object sender, RoutedEventArgs e)
+        {
+            PasswordGame.IsEnabled = true;
+        }
+
+        private void CheckBoxIsLocalGame_OnUnchecked(object sender, RoutedEventArgs e)
+        {
+            PasswordGame.IsEnabled = SubscriptionModule.Get().IsSubscribed ?? false;
+        }
+
+        private void CheckBoxSpectators_OnChecked(object sender, RoutedEventArgs e)
+        {
+            Specators = true;
+        }
+
+        private void CheckBoxSpectators_OnUnchecked(object sender, RoutedEventArgs e)
+        {
+            Specators = false;
+        }
     }
 }

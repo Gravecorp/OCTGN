@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
 
     public interface ICard
     {
@@ -9,10 +10,8 @@
         Guid SetId { get; }
         string Name { get; }
         string ImageUri { get; }
-        Guid Alternate { get; }
-        string Dependent { get; }
-        bool IsMutable { get; }
-        IDictionary<PropertyDef, object> Properties { get; } 
+        string Alternate { get; }
+        IDictionary<string , CardPropertySet> Properties { get; } 
     }
 
     public class Card : ICard
@@ -25,25 +24,26 @@
 
         public string ImageUri { get; set; }
 
-        /// <summary>
-        /// The location of the alternate. If none is specified, will be System.Guid.Empty
-        /// </summary>
-        public Guid Alternate { get; set; }
+        public string Alternate { get; set; }
 
-        /// <summary>
-        /// <TODO>
-        /// If not Guid.Empty.ToString(), this card will not be placed inside a deck - 
-        /// The card with guid == dependent will be used instead. Mainly used in Deck Editor
-        /// </TODO>
-        /// </summary>
-        public string Dependent { get; set; }
+        public IDictionary<string , CardPropertySet> Properties { get; set; }
+    }
 
-        /// <summary>
-        /// <TODO>a flag; if true, this card is read-only. (and will only be instanced once</TODO>)
-        /// </summary>
-        public bool IsMutable { get; set; }
-
+    public class CardPropertySet : ICloneable
+    {
+        public string Type { get; set; }
         public IDictionary<PropertyDef, object> Properties { get; set; }
 
+        public object Clone()
+        {
+            var ret = new CardPropertySet()
+                          {
+                              Type = this.Type.Clone() as string,
+                              Properties =
+                                  this.Properties.ToDictionary(
+                                      x => x.Key.Clone() as PropertyDef, x => x.Value)
+                          };
+            return ret;
+        }
     }
 }

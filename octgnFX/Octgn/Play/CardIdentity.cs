@@ -5,12 +5,13 @@ using Octgn.Play.Gui;
 
 namespace Octgn.Play
 {
+    using Octgn.Core.DataExtensionMethods;
+
     public class CardIdentity
     {
         private static readonly Dictionary<int, CardIdentity> All = new Dictionary<int, CardIdentity>(100);
 
         public readonly int Id; // id of the card (playerId << 16 | localId)
-        public bool Alias; // if alias is true, the type in key is not a card type but another CardIdentity to substitue
         public bool InUse; // if true, this cardidentity is currently linked to a card's Type property
         public ulong Key; // (nonce << 32 | type), either encrypted, or not
         public DataNew.Entities.Card Model; // card type
@@ -21,7 +22,11 @@ namespace Octgn.Play
         public CardIdentity(int id)
         {
             Id = id;
-            All.Add(id, this);
+            lock (All)
+            {
+                if (All.ContainsKey(id)) All[id] = this;
+                else All.Add(id, this);
+            }
         }
 
         public event EventHandler<RevealEventArgs> Revealed;
@@ -29,23 +34,28 @@ namespace Octgn.Play
         public static CardIdentity Find(int id)
         {
             CardIdentity res;
-            bool success = All.TryGetValue(id, out res);
-            return success ? res : null;
+            lock (All)
+            {
+                bool success = All.TryGetValue(id, out res);
+                return success ? res : null;
+            }
         }
 
         public static void Delete(int id)
         {
-            All.Remove(id);
+            lock(All)
+                All.Remove(id);
         }
 
         public static void Reset()
         {
-            All.Clear();
+            lock(All)
+                All.Clear();
         }
 
         public override string ToString()
         {
-            return Model == null ? "Card" : Model.Name;
+            return Model == null ? "Card" : Model.PropertyName();
         }
 
         public void OnRevealed(CardIdentity newId)
@@ -62,7 +72,7 @@ namespace Octgn.Play
 
     internal class CardIdentityNamer
     {
-        public CardRun Target { get; set; }
+        public ChatCard Target { get; set; }
 
         public void Rename(object sender, RevealEventArgs e)
         {

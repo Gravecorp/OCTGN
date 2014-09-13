@@ -25,7 +25,7 @@ namespace Octgn.Play.Gui
             base.OnCardOver(sender, e);
             e.CardSize =
                 new Size(
-                    100*Program.Game.Definition.CardDefinition.Width/Program.Game.Definition.CardDefinition.Height, 100);
+                    100*Program.GameEngine.Definition.CardWidth/Program.GameEngine.Definition.CardHeight, 100);
             _fanPanel.DisplayInsertIndicator(e.ClickedCard, _fanPanel.GetIndexFromPoint(Mouse.GetPosition(_fanPanel)));
         }
 
@@ -43,7 +43,7 @@ namespace Octgn.Play.Gui
             foreach (Card c in e.Cards)
             {
                 bool doNotIncrement = (c.Group == @group && @group.GetCardIndex(c) < idx);
-                c.MoveTo(@group, e.FaceUp != null && e.FaceUp.Value, idx);
+                c.MoveTo(@group, e.FaceUp != null && e.FaceUp.Value, idx,false);
                 // Fix: some cards (notably copies like token) may be deleted when they change group
                 // in those case we should increment idx, otherwise an IndexOutOfRange exception may occur
                 if (c.Group != @group)

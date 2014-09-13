@@ -13,6 +13,7 @@ namespace Skylabs.Lobby
     using System.Collections;
     using System.Diagnostics;
     using System.Diagnostics.CodeAnalysis;
+    using Octgn.Site.Api.Models;
 
     using agsXMPP;
     using agsXMPP.protocol.client;
@@ -30,17 +31,26 @@ namespace Skylabs.Lobby
         /// </param>
         public User(Jid user)
         {
-            this.JidUser = user.Bare;
+            this.JidUser = Jid.UnescapeNode(user.Bare.Clone() as string);
             this.Status = UserStatus.Unknown;
             this.CustomStatus = string.Empty;
             this.Email = string.Empty;
+            if (string.IsNullOrWhiteSpace(this.UserName)) return;
+        }
+
+        public User(User user)
+        {
+            this.JidUser = Jid.UnescapeNode(user.JidUser.Bare.Clone() as string);
+            this.Status = user.Status;
+            this.CustomStatus = user.CustomStatus.Clone() as string;
+            this.Email = user.Email.Clone() as string;
         }
 
         /// <summary>
         /// Gets or sets the raw JID user.
         /// </summary>
         [SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1650:ElementDocumentationMustBeSpelledCorrectly", Justification = "Reviewed. Suppression is OK here.")]
-        public Jid JidUser { get; set; }
+        public Jid JidUser { get; private set; }
 
         /// <summary>
         /// Gets or sets the users User Name.
@@ -49,7 +59,7 @@ namespace Skylabs.Lobby
         {
             get
             {
-                return this.JidUser.User;
+                return Jid.UnescapeNode(this.JidUser.User);
             }
             set
             {
@@ -64,7 +74,7 @@ namespace Skylabs.Lobby
         {
             get
             {
-                return this.JidUser.Bare.ToLowerInvariant();
+                return Jid.UnescapeNode(this.JidUser.Bare.ToLowerInvariant());
             }
         }
 
@@ -94,6 +104,27 @@ namespace Skylabs.Lobby
         /// Gets or sets the email.
         /// </summary>
         public string Email { get; set; }
+
+        /// <summary>
+        /// Gets or Sets if the user is subbed
+        /// </summary>
+        public bool IsSubbed {
+            get
+            {
+                var au = UserManager.Get().ApiUser(this);
+                if (au == null) return false;
+                return au.IsSubscribed;
+            }
+        }
+
+        public ApiUser ApiUser
+        {
+            get
+            {
+                var au = UserManager.Get().ApiUser(this);
+                return au;
+            }
+        }
 
         /// <summary>
         /// Convert a <see cref="Presence"/> packet into a <see cref="UserStatus"/>
@@ -160,6 +191,9 @@ namespace Skylabs.Lobby
         {
             string rid1 = null;
             string rid2 = null;
+
+            if ((null == a as object && null != b as object) || (null != a as object && null == b as object)) 
+                return false;
 
             // null must be on the left side of a, or we get a stack overflow
             if (null != a as object && a.JidUser != null && a.JidUser.Bare != null)

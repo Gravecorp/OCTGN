@@ -1,18 +1,18 @@
-﻿namespace Octgn.Core.DataExtensionMethods
+﻿/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+namespace Octgn.Core.DataExtensionMethods
 {
     using System;
     using System.Collections.Generic;
-    using System.Collections.ObjectModel;
-    using System.ComponentModel;
     using System.Data;
+    using System.IO;
     using System.IO.Abstractions;
     using System.Linq;
-    using System.Xml.Linq;
 
     using Octgn.Core.DataManagers;
     using Octgn.DataNew;
     using Octgn.DataNew.Entities;
-    using Octgn.DataNew.FileDB;
     using Octgn.Library;
     using Octgn.Library.Exceptions;
     using Octgn.ProxyGenerator;
@@ -33,13 +33,19 @@
 
         public static IEnumerable<Set> Sets(this Game game)
         {
-            return SetManager.Get().Sets.Where(x => x.GameId == game.Id);
+            var ret = SetManager.Get().GetByGameId(game.Id);
+            return ret;
+            //return SetManager.Get().Sets.Where(x => x.GameId == game.Id);
         }
 
+        /// <summary>
+        /// Not Implemented
+        /// </summary>
+        /// <param name="game"></param>
+        /// <returns></returns>
         public static Game Install(this Game game)
         {
-            DbContext.Get().Save(game);
-            return game;
+            throw new NotImplementedException();
         }
 
         public static Game UpdateGameHash(this Game game, string hash)
@@ -50,20 +56,11 @@
             return game;
         }
 
-        public static string GetFullPath(this Game game)
-        {
-            var ret = "";
-            ret = IO.Path.Combine(Paths.DataDirectory, "Games");
-            ret = IO.Path.Combine(ret, game.Id.ToString());
-            ret = IO.Path.Combine(ret, "Defs");
-            ret = IO.Path.Combine(ret, game.Filename);
-            return ret;
-        }
-
         public static Deck CreateDeck(this Game game)
         {
             var deck = new Deck { GameId = game.Id };
-            deck.Sections = game.DeckSections.Select(x=> new Section{Name=x,Cards = new List<IMultiCard>()}).ToList();
+            deck.Sections = game.DeckSections.Select(x=> new Section{Name=x.Value.Name.Clone() as string,Cards = new List<IMultiCard>(),Shared = x.Value.Shared}).ToList();
+            deck.Sections = deck.Sections.Concat(game.SharedDeckSections.Select(x=> new Section{Name=x.Value.Name.Clone() as string,Cards = new List<IMultiCard>(),Shared = x.Value.Shared})).ToList();
             return deck;
         }
 
@@ -72,35 +69,37 @@
             return DbContext.Get().Scripts.Where(x => x.GameId == game.Id);
         }
 
-        public static string GetInstallPath(this Game game)
-        {
-            return IO.Path.Combine(IO.Path.Combine(Paths.DataDirectory, "Games"), game.Id.ToString());
-        }
-
         public static Uri GetCardBackUri(this Game game)
         {
-            var path = IO.Path.Combine(game.GetInstallPath(), game.CardBack);
-            var ret = new Uri(path);
+            var ret = new Uri(game.CardBack);
+            return ret;
+        }
+
+        public static Uri GetCardFrontUri(this Game game)
+        {
+            var ret = new Uri(game.CardFront);
             return ret;
         }
 
         public static string GetDefaultDeckPath(this Game game)
         {
-            return IO.Path.Combine(Paths.DataDirectory, "Decks");
+            var path = Config.Instance.Paths.DeckPath;
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            return path;
         }
 
         public static Card GetCardByName(this Game game, string name)
         {
-            var g = GameManager.Get().GetById(game.Id);
-            if (g == null) return null;
-            return g.Sets().SelectMany(x=> x.Cards).FirstOrDefault(y =>y.Name == name);
+            //var g = GameManager.Get().GetById(game.Id);
+            //if (g == null) return null;
+            return game.Sets().SelectMany(x => x.Cards).FirstOrDefault(y => y.Name.Equals(name,StringComparison.InvariantCultureIgnoreCase));
         }
 
         public static Card GetCardById(this Game game, Guid id)
         {
-            var g = GameManager.Get().GetById(game.Id);
-            if (g == null) return null;
-            return g.Sets().SelectMany(x => x.Cards).FirstOrDefault(y => y.Id == id);
+            //var g = GameManager.Get().GetById(game.Id);
+            //if (g == null) return null;
+            return game.Sets().SelectMany(x => x.Cards).FirstOrDefault(y => y.Id == id);
         }
 
         public static Set GetSetById(this Game game, Guid id)
@@ -142,8 +141,8 @@
         {
             DataTable table = new DataTable();
             
-            var values = new object[game.CustomProperties.Count + 5];
-            var defaultValues = new object[game.CustomProperties.Count + 5];
+            var values = new object[game.CustomProperties.Count + 5 - 1];
+            var defaultValues = new object[game.CustomProperties.Count + 5 - 1];
             var indexes = new Dictionary<int, string>();
             var setCache = new Dictionary<Guid, string>();
             var i = 0 + 5;
@@ -159,6 +158,7 @@
             defaultValues[4] = "";
             foreach (var prop in game.CustomProperties)
             {
+                if (prop.Name == "Name") continue;
                 switch (prop.Type)
                 {
                     case PropertyType.String:
@@ -197,9 +197,13 @@
                 values[2] = item.SetId;
                 values[3] = item.ImageUri;
                 values[4] = item.Id;
-                foreach (var prop in item.Properties)
+                foreach (var prop in item.PropertySet())
                 {
-                    values[indexes.First(x=>x.Value == prop.Key.Name).Key] = prop.Value;
+                    if (prop.Key.Name == "Name") continue;
+                    var ix = indexes.Where(x => x.Value == prop.Key.Name).Select(x=>new {Key=x.Key,Value=x.Value}).FirstOrDefault();
+                    if(ix == null)
+                        throw new UserMessageException("The game you are trying to make a deck for has a missing property on a card. Please contact the game developer and let them know.");
+                    values[ix.Key] = prop.Value;
                 }
                    
                 table.Rows.Add(values);
@@ -207,14 +211,10 @@
             return table;   
         }
 
-        public static void DeleteSet(this Game game, Set set)
-        {
-            SetManager.Get().UninstallSet(set);
-        }
-
         public static ProxyDefinition GetCardProxyDef(this Game game)
         {
-            return DbContext.Get().ProxyDefinitions.FirstOrDefault(x => (Guid)x.Key == game.Id);
+            var retdef = DbContext.Get().ProxyDefinitions.FirstOrDefault(x => (Guid)x.Key == game.Id);
+            return retdef;
         }
     }
 }

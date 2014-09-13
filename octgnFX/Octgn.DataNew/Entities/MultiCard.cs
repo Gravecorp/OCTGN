@@ -24,13 +24,9 @@
 
         private string imageUri;
 
-        private Guid alternate;
+        private string alternate;
 
-        private string dependent;
-
-        private bool isMutable;
-
-        private IDictionary<PropertyDef, object> properties;
+        private IDictionary<string, CardPropertySet> properties;
 
         private int quantity;
 
@@ -91,7 +87,7 @@
 
         }
 
-        public Guid Alternate
+        public string Alternate
         {
             get
             {
@@ -102,38 +98,11 @@
                 if (this.alternate == value) return;
                 this.alternate = value;
                 OnPropertyChanged("Alternate");
+                this.OnPropertyChanged("Properties");
             }
         }
 
-        public string Dependent
-        {
-            get
-            {
-                return this.dependent;
-            }
-            set
-            {
-                if (this.dependent == value) return;
-                this.dependent = value;
-                OnPropertyChanged("Dependent");
-            }
-        }
-
-        public bool IsMutable
-        {
-            get
-            {
-                return this.isMutable;
-            }
-            set
-            {
-                if (this.isMutable == value) return;
-                this.isMutable = value;
-                OnPropertyChanged("IsMutable");
-            }
-        }
-
-        public IDictionary<PropertyDef, object> Properties
+        public IDictionary<string, CardPropertySet> Properties
         {
             get
             {

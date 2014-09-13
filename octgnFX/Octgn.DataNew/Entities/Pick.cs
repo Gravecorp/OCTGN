@@ -1,10 +1,17 @@
 ﻿namespace Octgn.DataNew.Entities
 {
     using System;
+    using System.Linq;
+    using System.Reflection;
     using System.Xml;
+
+    using log4net;
+
+    using Octgn.Library.ExtensionMethods;
 
     public class Pick : IPackItem
     {
+        internal static ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         public Pick()
         {
             
@@ -21,19 +28,48 @@
         public string Key { get; set; }
         public string Value { get; set; }
 
-        public PackContent GetCards(Pack pack)
+        public PackContent GetCards(Pack pack, Set set)
         {
-            var result = new PackContent();
-            //TODO [DB MIGRATION] blah
-            throw new NotImplementedException("Holy Moly");
-            //var conditions = new string[2];
-            //conditions[0] = "set_id = '" + pack.Set.Id + "'";
-            //conditions[1] = string.Format("{0} = '{1}'", Key, Value);
-            //if (Quantity < 0)
-            //    result.UnlimitedCards.AddRange(pack.Set.Game.SelectCardModels(conditions));
-            //else
-            //    result.LimitedCards.AddRange(pack.Set.Game.SelectRandomCardModels(Quantity, conditions));
-            return result;
+            var ret = new PackContent();
+
+            if (Quantity < 0)
+            {
+                ret.UnlimitedCards.AddRange(
+                    from card in set.Cards
+                    where
+                        card.Properties.SelectMany(x=>x.Value.Properties).Any(
+                            x =>
+                            x.Key.Name.ToLower() ==Key.ToLower()
+                            && x.Value.ToString().ToLower() ==Value.ToLower())
+                    select card);
+            }
+            else
+            {
+                var list = (
+                    from card in set.Cards
+                    where
+                        card.Properties.Where(x=> x.Key == "").SelectMany(x=>x.Value.Properties).Any(
+                            x =>
+                            x.Key.Name.ToLower() ==Key.ToLower()
+                            && x.Value.ToString().ToLower() ==Value.ToLower())
+                    select card).ToList();
+
+                for (var i = 0; i < Quantity; i++)
+                {
+                    var pick = list.RandomElement();
+                    if (pick != null)
+                    {
+                        ret.LimitedCards.Add(pick);
+                        list.Remove(pick);
+                    }
+                    else
+                    {
+                        Log.Warn(String.Format("Set {0} ({1}) does not contain enough cards to create this booster pack correctly.", set.Id, set.Name));
+                    }
+                }
+            }
+
+            return ret;
         }
     }
 }

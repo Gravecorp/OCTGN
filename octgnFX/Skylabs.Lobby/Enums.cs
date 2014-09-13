@@ -73,6 +73,11 @@
         FriendList,
 
         /// <summary>
+        /// The ignore list.
+        /// </summary>
+        IgnoreList,
+
+        /// <summary>
         /// The my info.
         /// </summary>
         MyInfo,
@@ -95,7 +100,14 @@
         /// <summary>
         /// The announcement.
         /// </summary>
-        Announcement
+        Announcement,
+
+        /// <summary>
+        /// Users subscription changed
+        /// </summary>
+        UserSubChanged,
+
+        GameInvite
     }
 
     /// <summary>

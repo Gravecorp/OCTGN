@@ -1,161 +1,161 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+
 using Skylabs.Lobby;
-using agsXMPP;
 
 namespace Octgn.Controls
 {
+    using System.Reflection;
+
+    using log4net;
+
+    using Octgn.Controls.ControlTemplates;
+
     /// <summary>
     /// Interaction logic for ChatUserListItem.xaml
     /// </summary>
-    public partial class ChatUserListItem : UserControl,IComparable<ChatUserListItem>,IEquatable<ChatUserListItem>,IEqualityComparer<ChatUserListItem>
+    public partial class ChatUserListItem : UserListItem,IComparable<ChatUserListItem>
     {
-        public User User
-        {
-            get { return _user; }
-            set { 
-                _user = value;
-                Dispatcher.BeginInvoke(new Action(() =>
-                                                      {
-                                                          UserNameTextBox.Text = _user.UserName;
-                                                      }));
-            }
-        }
-
+        internal static new ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+		
         public bool IsAdmin
         {
-            get { return _isAdmin; }
+            get { return this.isAdmin; }
             set
             {
-                _isAdmin = value;
-                Dispatcher.BeginInvoke(new Action(() =>
-                                                      {
-                                                          ImageAdmin.Visibility = _isAdmin
-                                                                                      ? Visibility.Visible
-                                                                                      : Visibility.Collapsed;
-                                                      }));
+                this.isAdmin = value;
+                OnPropertyChanged("IsAdmin");
             }
         }
 
         public bool IsMod
         {
-            get { return _isMod; }
+            get { return this.isMod; }
             set
             {
-                _isMod = value;
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    ImageMod.Visibility = _isMod
-                                                                                      ? Visibility.Visible
-                                                                                      : Visibility.Collapsed;
-
-                }));
+                this.isMod = value;
+                OnPropertyChanged("IsMod");
             }
         }
 
         public bool IsOwner
         {
-            get { return _isOwner; }
+            get { return this.isOwner; }
             set
             {
-                _isOwner = value;
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    ImageOwner.Visibility = _isOwner
-                                                                                      ? Visibility.Visible
-                                                                                      : Visibility.Collapsed;
-
-                }));
+                this.isOwner = value;
+                OnPropertyChanged("IsOwner");
             }
         }
 
-        private User _user;
-        private bool _isAdmin;
-        private bool _isMod;
-        private bool _isOwner;
+        private bool isAdmin;
+        private bool isMod;
+        private bool isOwner;
+        private readonly ChatRoom room;
+
         public ChatUserListItem()
+            : base()
         {
-            InitializeComponent();
-            User = new User(new Jid("noone@server.octgn.info"));
-            IsAdmin = false;
-            IsMod = false;
-            IsOwner = false;
+            DataContext = this;
         }
 
-        public ChatUserListItem(ChatRoom room, User user)
+        public ChatUserListItem(ChatRoom chatroom, User user):base(user)
         {
+            DataContext = this;
             InitializeComponent();
-            IsAdmin = room.AdminList.Any(x => x == user);
-            IsMod = room.ModeratorList.Any(x => x == user);
-            IsOwner = room.OwnerList.Any(x => x == user);
-            User = user;
+            this.room = chatroom;
+            this.room.OnUserListChange += RoomOnOnUserListChange;
+            this.Update(chatroom);
+        }
+
+        internal void Update(ChatRoom chatroom)
+        {
+            IsAdmin = chatroom.AdminList.Any(x => x == this.user);
+            IsMod = chatroom.ModeratorList.Any(x => x == this.user);
+            IsOwner = chatroom.OwnerList.Any(x => x == this.user);
+        }
+
+        private void RoomOnOnUserListChange(object sender, List<User> users)
+        {
+            var chatroom = sender as ChatRoom;
+            if (chatroom == null) return;
+            this.Update(chatroom);
         }
 
         public int CompareTo(ChatUserListItem other)
         {
+            if (this.User == null) return 1;
+            if (other == null) return -1;
+            if (other.User == null) return -1;
             if (this.IsOwner)
             {
-                if (other.IsOwner) return this.User.UserName.CompareTo(other.User.UserName);
+                if (other.IsOwner) return String.Compare(this.User.UserName, other.User.UserName, StringComparison.InvariantCultureIgnoreCase);
                 return -1;
             }
             if (this.IsAdmin)
             {
                 if (other.IsOwner) return 1;
-                if (other.IsAdmin) return this.User.UserName.CompareTo(other.User.UserName);
+                if (other.IsAdmin) return String.Compare(this.User.UserName, other.User.UserName, StringComparison.InvariantCultureIgnoreCase);
                 return -1;
             }
             if (this.IsMod)
             {
-                if (this.IsOwner) return 1;
-                if (this.IsAdmin) return 1;
-                if (this.IsMod) return this.User.UserName.CompareTo(other.User.UserName);
+                if (other.IsOwner) return 1;
+                if (other.IsAdmin) return 1;
+                if (other.IsMod) return String.Compare(this.User.UserName, other.User.UserName, StringComparison.InvariantCultureIgnoreCase);
+                return -1;
+            }
+            if (this.IsSub)
+            {
+                if (other.IsOwner) return 1;
+                if (other.IsAdmin) return 1;
+                if (other.IsMod) return 1;
+                if (other.IsSub) return String.Compare(this.User.UserName, other.User.UserName, StringComparison.InvariantCultureIgnoreCase);
                 return -1;
             }
             if (other.IsOwner)
             {
-                if (this.IsOwner) return other.User.UserName.CompareTo(this.User.UserName);
+                if (this.IsOwner) return String.Compare(other.User.UserName, this.User.UserName, StringComparison.InvariantCultureIgnoreCase);
                 return 1;
             }
             if (other.IsAdmin)
             {
                 if (this.IsOwner) return -1;
-                if (this.IsAdmin) return other.User.UserName.CompareTo(this.User.UserName);
+                if (this.IsAdmin) return String.Compare(other.User.UserName, this.User.UserName, StringComparison.InvariantCultureIgnoreCase);
                 return 1;
             }
             if (other.IsMod)
             {
                 if (this.IsOwner) return -1;
                 if (this.IsAdmin) return -1;
-                if (this.IsMod) return other.User.UserName.CompareTo(this.User.UserName);
+                if (this.IsMod) return String.Compare(other.User.UserName, this.User.UserName, StringComparison.InvariantCultureIgnoreCase);
                 return 1;
             }
-            return this.User.UserName.CompareTo(other.User.UserName);
+            if (other.IsSub)
+            {
+                if (this.IsOwner) return -1;
+                if (this.IsAdmin) return -1;
+                if (this.IsMod) return -1;
+                if (this.IsSub) return String.Compare(other.User.UserName, this.User.UserName, StringComparison.InvariantCultureIgnoreCase);
+                return 1;
+            }
+            return String.Compare(this.User.UserName, other.User.UserName, StringComparison.InvariantCultureIgnoreCase); 
+        }
+        #region Implementation of IDisposable
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public override void Dispose()
+        {
+            if (this.room != null)
+            {
+                this.room.OnUserListChange -= RoomOnOnUserListChange;
+            }
+            base.Dispose();
         }
 
-        public bool Equals(ChatUserListItem other)
-        {
-            return other.User == User;
-        }
-
-        public bool Equals(ChatUserListItem x, ChatUserListItem y)
-        {
-            return x.User.Equals(y.User);
-        }
-
-        public int GetHashCode(ChatUserListItem obj)
-        {
-            return obj.User.GetHashCode();
-        }
+        #endregion
     }
 }

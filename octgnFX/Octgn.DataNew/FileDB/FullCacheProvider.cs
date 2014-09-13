@@ -3,6 +3,7 @@
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Reflection;
 
     using log4net;
@@ -58,6 +59,17 @@
                 }
             }
         }
+        public void InvalidateObject(object obj)
+        {
+            lock (CacheLocker)
+            {
+                foreach (var o in Cache.Where(x => x.Value.Object == obj).ToArray())
+                {
+                    Cache[o.Key].Dispose();
+                    Cache.Remove(o.Key);
+                }
+            }
+        }
     }
     internal class CacheObject : IDisposable
     {
@@ -73,8 +85,8 @@
             Path = path;
             Object = obj;
             Watcher = new FileSystemWatcher(fi.Directory.FullName,fi.Name);
-            Watcher.NotifyFilter = NotifyFilters.LastAccess | NotifyFilters.LastWrite | NotifyFilters.Size
-                                   | NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Security;
+            Watcher.NotifyFilter =  NotifyFilters.LastWrite | NotifyFilters.Size
+                                   | NotifyFilters.FileName | NotifyFilters.DirectoryName ;
             Watcher.Changed += WatcherOnChanged;
             Watcher.Deleted += WatcherOnDeleted;
             Watcher.Renamed += WatcherOnRenamed;

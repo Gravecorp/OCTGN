@@ -10,10 +10,11 @@ namespace Octgn.Server
 	{ 
 		void Binary();
 		void Error(string msg);
-		void Welcome(byte id);
-		void Settings(bool twoSidedTable);
-		void PlayerSettings(byte playerId, bool invertedTable);
-		void NewPlayer(byte id, string nick, ulong pkey);
+		void Kick(string reason);
+		void Welcome(byte id, Guid gameSessionId, bool waitForGameState);
+		void Settings(bool twoSidedTable, bool allowSpectators, bool muteSpectators);
+		void PlayerSettings(byte playerId, bool invertedTable, bool spectator);
+		void NewPlayer(byte id, string nick, ulong pkey, bool tableSide, bool spectator);
 		void Leave(byte player);
 		void Nick(byte player, string nick);
 		void Start();
@@ -26,12 +27,12 @@ namespace Octgn.Server
 		void RandomAnswer1(byte player, int id, ulong value);
 		void RandomAnswer2(byte player, int id, ulong value);
 		void Counter(byte player, int counter, int value);
-		void LoadDeck(int[] id, ulong[] type, int[] group);
+		void LoadDeck(int[] id, ulong[] type, int[] group, string sleeve);
 		void CreateCard(int[] id, ulong[] type, int group);
 		void CreateCardAt(int[] id, ulong[] key, Guid[] modelId, int[] x, int[] y, bool faceUp, bool persist);
-		void CreateAlias(int[] id, ulong[] type);
-		void MoveCard(byte player, int card, int group, int idx, bool faceUp);
-		void MoveCardAt(byte player, int card, int x, int y, int idx, bool faceUp);
+		void CreateAliasDeprecated(int[] id, ulong[] type);
+		void MoveCard(byte player, int card, int group, int idx, bool faceUp, bool isScriptMove);
+		void MoveCardAt(byte player, int card, int x, int y, int idx, bool faceUp, bool isScriptMove);
 		void Reveal(int card, ulong revealed, Guid guid);
 		void RevealTo(byte[] players, int card, ulong[] encrypted);
 		void Peek(byte player, int card);
@@ -41,14 +42,13 @@ namespace Octgn.Server
 		void Highlight(int card, string color);
 		void Turn(byte player, int card, bool up);
 		void Rotate(byte player, int card, CardOrientation rot);
-		void Shuffle(int group, int[] card);
-		void Shuffled(int group, int[] card, short[] pos);
-		void UnaliasGrp(int group);
-		void Unalias(int[] card, ulong[] type);
-		void AddMarker(byte player, int card, Guid id, string name, ushort count);
-		void RemoveMarker(byte player, int card, Guid id, string name, ushort count);
-		void SetMarker(byte player, int card, Guid id, string name, ushort count);
-		void TransferMarker(byte player, int from, int to, Guid id, string name, ushort count);
+		void ShuffleDeprecated(int group, int[] card);
+		void Shuffled(byte player, int group, int[] card, short[] pos);
+		void UnaliasGrpDeprecated(int group);
+		void UnaliasDeprecated(int[] card, ulong[] type);
+		void AddMarker(byte player, int card, Guid id, string name, ushort count, ushort origCount, bool isScriptChange);
+		void RemoveMarker(byte player, int card, Guid id, string name, ushort count, ushort origCount, bool isScriptChange);
+		void TransferMarker(byte player, int from, int to, Guid id, string name, ushort count, ushort origCount, bool isScriptChange);
 		void PassTo(byte player, int id, byte to, bool requested);
 		void TakeFrom(int id, byte to);
 		void DontTake(int id);
@@ -61,11 +61,19 @@ namespace Octgn.Server
 		void LookAtBottom(byte player, int uid, int group, int count, bool look);
 		void StartLimited(byte player, Guid[] packs);
 		void CancelLimited(byte player);
-		void IsAlternateImage(int card, bool isAlternateImage);
-		void PlayerSetGlobalVariable(byte player, string name, string val);
-		void SetGlobalVariable(string name, string val);
-		void SwitchWithAlternate(int card);
+		void CardSwitchTo(byte player, int card, string alternate);
+		void PlayerSetGlobalVariable(byte player, string name, string oldval, string val);
+		void SetGlobalVariable(string name, string oldval, string val);
 		void Ping();
 		void IsTableBackgroundFlipped(bool isFlipped);
+		void PlaySound(byte player, string name);
+		void Ready(byte player);
+		void PlayerState(byte player, byte state);
+		void RemoteCall(byte player, string function, string args);
+		void GameStateReq(byte player);
+		void GameState(byte toPlayer, string state);
+		void DeleteCard(int card, byte player);
+		void PlayerDisconnect(byte player);
+		void AddPacks(byte player, Guid[] packs, bool selfOnly);
 	}
 }

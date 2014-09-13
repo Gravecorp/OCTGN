@@ -13,9 +13,7 @@ namespace Octgn.Server
 	internal sealed class Broadcaster : Octgn.Server.IClientCalls
 	{
 		private byte[] binData = new byte[1024];
-		private Dictionary<TcpClient, Handler.PlayerInfo> to;
 		private BinFormatter bin;
-		private Handler handler;
 
 		private sealed class BinFormatter : BaseBinaryStub
 		{
@@ -28,9 +26,8 @@ namespace Octgn.Server
 			{ bcast.binData = data; }
 		}
 
-		internal Broadcaster(Dictionary<TcpClient, Handler.PlayerInfo> to, Handler handler)
+		internal Broadcaster(Handler handler)
 		{ 
-			this.to = to; this.handler = handler;
 			bin = new BinFormatter(this, handler);
 		}
 		
@@ -41,17 +38,16 @@ namespace Octgn.Server
 		
 		internal void Send()
 		{
-			foreach (KeyValuePair<TcpClient, Handler.PlayerInfo> kvp in to)
+			foreach (var player in State.Instance.Players)
 				try
 				{
-					Stream stream = kvp.Key.GetStream();
-					stream.Write(binData, 0, binData.Length);
-					stream.Flush();
+					if (player.Connected == false) continue;
+					player.Socket.Send(binData);
 				}
 				catch
 				{
 // TODO notify disconnection
-//					Program.server.Disconnected(kvp.Key);
+//					Program.server.Disconnected(player.Socket.Client);
 				}
 		}
 
@@ -67,27 +63,33 @@ namespace Octgn.Server
       Send();
     }
 
-    public void Welcome(byte id)
+    public void Kick(string reason)
     {
-      bin.Welcome(id);
+      bin.Kick(reason);
       Send();
     }
 
-    public void Settings(bool twoSidedTable)
+    public void Welcome(byte id, Guid gameSessionId, bool waitForGameState)
     {
-      bin.Settings(twoSidedTable);
+      bin.Welcome(id, gameSessionId, waitForGameState);
       Send();
     }
 
-    public void PlayerSettings(byte playerId, bool invertedTable)
+    public void Settings(bool twoSidedTable, bool allowSpectators, bool muteSpectators)
     {
-      bin.PlayerSettings(playerId, invertedTable);
+      bin.Settings(twoSidedTable, allowSpectators, muteSpectators);
       Send();
     }
 
-    public void NewPlayer(byte id, string nick, ulong pkey)
+    public void PlayerSettings(byte playerId, bool invertedTable, bool spectator)
     {
-      bin.NewPlayer(id, nick, pkey);
+      bin.PlayerSettings(playerId, invertedTable, spectator);
+      Send();
+    }
+
+    public void NewPlayer(byte id, string nick, ulong pkey, bool tableSide, bool spectator)
+    {
+      bin.NewPlayer(id, nick, pkey, tableSide, spectator);
       Send();
     }
 
@@ -163,9 +165,9 @@ namespace Octgn.Server
       Send();
     }
 
-    public void LoadDeck(int[] id, ulong[] type, int[] group)
+    public void LoadDeck(int[] id, ulong[] type, int[] group, string sleeve)
     {
-      bin.LoadDeck(id, type, group);
+      bin.LoadDeck(id, type, group, sleeve);
       Send();
     }
 
@@ -181,21 +183,21 @@ namespace Octgn.Server
       Send();
     }
 
-    public void CreateAlias(int[] id, ulong[] type)
+    public void CreateAliasDeprecated(int[] id, ulong[] type)
     {
-      bin.CreateAlias(id, type);
+      bin.CreateAliasDeprecated(id, type);
       Send();
     }
 
-    public void MoveCard(byte player, int card, int group, int idx, bool faceUp)
+    public void MoveCard(byte player, int card, int group, int idx, bool faceUp, bool isScriptMove)
     {
-      bin.MoveCard(player, card, group, idx, faceUp);
+      bin.MoveCard(player, card, group, idx, faceUp, isScriptMove);
       Send();
     }
 
-    public void MoveCardAt(byte player, int card, int x, int y, int idx, bool faceUp)
+    public void MoveCardAt(byte player, int card, int x, int y, int idx, bool faceUp, bool isScriptMove)
     {
-      bin.MoveCardAt(player, card, x, y, idx, faceUp);
+      bin.MoveCardAt(player, card, x, y, idx, faceUp, isScriptMove);
       Send();
     }
 
@@ -253,51 +255,45 @@ namespace Octgn.Server
       Send();
     }
 
-    public void Shuffle(int group, int[] card)
+    public void ShuffleDeprecated(int group, int[] card)
     {
-      bin.Shuffle(group, card);
+      bin.ShuffleDeprecated(group, card);
       Send();
     }
 
-    public void Shuffled(int group, int[] card, short[] pos)
+    public void Shuffled(byte player, int group, int[] card, short[] pos)
     {
-      bin.Shuffled(group, card, pos);
+      bin.Shuffled(player, group, card, pos);
       Send();
     }
 
-    public void UnaliasGrp(int group)
+    public void UnaliasGrpDeprecated(int group)
     {
-      bin.UnaliasGrp(group);
+      bin.UnaliasGrpDeprecated(group);
       Send();
     }
 
-    public void Unalias(int[] card, ulong[] type)
+    public void UnaliasDeprecated(int[] card, ulong[] type)
     {
-      bin.Unalias(card, type);
+      bin.UnaliasDeprecated(card, type);
       Send();
     }
 
-    public void AddMarker(byte player, int card, Guid id, string name, ushort count)
+    public void AddMarker(byte player, int card, Guid id, string name, ushort count, ushort origCount, bool isScriptChange)
     {
-      bin.AddMarker(player, card, id, name, count);
+      bin.AddMarker(player, card, id, name, count, origCount, isScriptChange);
       Send();
     }
 
-    public void RemoveMarker(byte player, int card, Guid id, string name, ushort count)
+    public void RemoveMarker(byte player, int card, Guid id, string name, ushort count, ushort origCount, bool isScriptChange)
     {
-      bin.RemoveMarker(player, card, id, name, count);
+      bin.RemoveMarker(player, card, id, name, count, origCount, isScriptChange);
       Send();
     }
 
-    public void SetMarker(byte player, int card, Guid id, string name, ushort count)
+    public void TransferMarker(byte player, int from, int to, Guid id, string name, ushort count, ushort origCount, bool isScriptChange)
     {
-      bin.SetMarker(player, card, id, name, count);
-      Send();
-    }
-
-    public void TransferMarker(byte player, int from, int to, Guid id, string name, ushort count)
-    {
-      bin.TransferMarker(player, from, to, id, name, count);
+      bin.TransferMarker(player, from, to, id, name, count, origCount, isScriptChange);
       Send();
     }
 
@@ -373,27 +369,21 @@ namespace Octgn.Server
       Send();
     }
 
-    public void IsAlternateImage(int card, bool isAlternateImage)
+    public void CardSwitchTo(byte player, int card, string alternate)
     {
-      bin.IsAlternateImage(card, isAlternateImage);
+      bin.CardSwitchTo(player, card, alternate);
       Send();
     }
 
-    public void PlayerSetGlobalVariable(byte player, string name, string val)
+    public void PlayerSetGlobalVariable(byte player, string name, string oldval, string val)
     {
-      bin.PlayerSetGlobalVariable(player, name, val);
+      bin.PlayerSetGlobalVariable(player, name, oldval, val);
       Send();
     }
 
-    public void SetGlobalVariable(string name, string val)
+    public void SetGlobalVariable(string name, string oldval, string val)
     {
-      bin.SetGlobalVariable(name, val);
-      Send();
-    }
-
-    public void SwitchWithAlternate(int card)
-    {
-      bin.SwitchWithAlternate(card);
+      bin.SetGlobalVariable(name, oldval, val);
       Send();
     }
 
@@ -406,6 +396,60 @@ namespace Octgn.Server
     public void IsTableBackgroundFlipped(bool isFlipped)
     {
       bin.IsTableBackgroundFlipped(isFlipped);
+      Send();
+    }
+
+    public void PlaySound(byte player, string name)
+    {
+      bin.PlaySound(player, name);
+      Send();
+    }
+
+    public void Ready(byte player)
+    {
+      bin.Ready(player);
+      Send();
+    }
+
+    public void PlayerState(byte player, byte state)
+    {
+      bin.PlayerState(player, state);
+      Send();
+    }
+
+    public void RemoteCall(byte player, string function, string args)
+    {
+      bin.RemoteCall(player, function, args);
+      Send();
+    }
+
+    public void GameStateReq(byte player)
+    {
+      bin.GameStateReq(player);
+      Send();
+    }
+
+    public void GameState(byte toPlayer, string state)
+    {
+      bin.GameState(toPlayer, state);
+      Send();
+    }
+
+    public void DeleteCard(int card, byte player)
+    {
+      bin.DeleteCard(card, player);
+      Send();
+    }
+
+    public void PlayerDisconnect(byte player)
+    {
+      bin.PlayerDisconnect(player);
+      Send();
+    }
+
+    public void AddPacks(byte player, Guid[] packs, bool selfOnly)
+    {
+      bin.AddPacks(player, packs, selfOnly);
       Send();
     }
 	}

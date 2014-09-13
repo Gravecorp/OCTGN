@@ -4,18 +4,22 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using Octgn.Controls;
-using Octgn.Data;
-using Octgn.Definitions;
 using Octgn.Play.Actions;
 using Octgn.Play.Gui;
 using Octgn.Utils;
+using System.Reflection;
+
+using Octgn.Core.DataExtensionMethods;
+using Octgn.Core.Util;
+using Octgn.DataNew.Entities;
+
+using log4net;
 
 namespace Octgn.Play
 {
-    using Octgn.Core.DataExtensionMethods;
 
     [Flags]
     public enum CardOrientation
@@ -28,30 +32,44 @@ namespace Octgn.Play
 
     public sealed class Card : ControllableObject
     {
+        internal static ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+
         #region Static interface
 
         private static readonly Dictionary<int, Card> All = new Dictionary<int, Card>();
 
         public static string DefaultFront
         {
-            get { return Program.Game.Definition.CardDefinition.Front; }
+            get { return Program.GameEngine.Definition.CardFront; }
         }
 
         public static string DefaultBack
         {
-            get { return Program.Game.Definition.CardDefinition.Back; }
+            get { return Program.GameEngine.Definition.CardBack; }
         }
 
         internal new static Card Find(int id)
         {
             Card res;
-            bool success = All.TryGetValue(id, out res);
-            return success ? res : null;
+            lock (All)
+            {
+                bool success = All.TryGetValue(id, out res);
+                return success ? res : null;
+            }
         }
 
         internal static void Reset()
         {
-            All.Clear();
+            lock (All)
+                All.Clear();
+        }
+
+        internal static void Remove(Card card)
+        {
+            lock (All)
+            {
+                All.Remove(card.Id);
+            }
         }
 
         #endregion Static interface
@@ -61,7 +79,7 @@ namespace Octgn.Play
         private readonly int _id;
 
         internal List<Player> PlayersLooking = new List<Player>(1);
-         // List of players looking at this card currently. A player may appear more than once since he can have more than one window opened
+        // List of players looking at this card currently. A player may appear more than once since he can have more than one window opened
         private readonly ObservableCollection<Player> _playersPeeking = new ObservableCollection<Player>();
         // List of players, who had peeked at this card. The list is reset when the card changes group.
         internal bool MayBeConsideredFaceUp;
@@ -70,7 +88,7 @@ namespace Octgn.Play
 															   If a script tries to print the card's lName, when the message arrives the card is already
 															   face down although it should still be up. */
 
-        
+
         //private CardDef _definition;
         private bool _faceUp;
         private Group _group;
@@ -83,32 +101,26 @@ namespace Octgn.Play
         private bool _selected;
         private CardIdentity _type;
         private double _x, _y;
+        private bool? _isProxy;
+        private bool _cardMoved;
 
         #endregion Private fields
 
-        internal Card(Player owner, int id, ulong key, CardDef def, DataNew.Entities.Card model, bool mySecret)
+        internal Card(Player owner, int id, ulong key, DataNew.Entities.Card model, bool mySecret)
             : base(owner)
         {
             _id = id;
-            Type = new CardIdentity(id) {Alias = false, Key = key, Model = model, MySecret = mySecret};
+            Type = new CardIdentity(id) { Key = key, Model = model.Clone(), MySecret = mySecret };
             // var _definition = def;
-            All.Add(id, this);
+            lock (All)
+            {
+                if (All.ContainsKey(id)) All[id] = this;
+                else All.Add(id, this);
+            }
             _alternateOf = null;
             numberOfSwitchWithAlternatesNotPerformed = 0;
             _isAlternateImage = false;
-        }
-
-        public bool IsAlternateImage
-        {
-            get { return _isAlternateImage; }
-            set
-            {
-                if (value == _isAlternateImage) return;
-                Program.Client.Rpc.IsAlternateImage(this, value);
-
-                _isAlternateImage = value;
-                OnPropertyChanged("Picture");
-            }
+            _cardMoved = false;
         }
 
         internal override int Id
@@ -118,12 +130,20 @@ namespace Octgn.Play
 
         public override string Name
         {
-            get { return FaceUp && _type.Model != null ? _type.Model.Name : "Card"; }
+            get { return FaceUp && _type.Model != null ? _type.Model.PropertyName() : "Card"; }
         }
 
         public string RealName
         {
-            get { return _type.Model != null ? _type.Model.Name : "Card"; }
+            get { return _type.Model != null ? _type.Model.PropertyName() : "Card"; }
+        }
+        public bool CardMoved
+        {
+            get { return _cardMoved; }
+            set
+            {
+                _cardMoved = value;
+            }
         }
 
         internal CardIdentity Type
@@ -142,8 +162,7 @@ namespace Octgn.Play
                 if (value != null)
                 {
                     if (value.InUse)
-                        Program.Trace.TraceEvent(TraceEventType.Warning, EventIds.Event,
-                                                 "The same card identity is used for two different cards!");
+                        Program.GameMess.Warning("The same card identity is used for two different cards!");
                     // Acquire the new identity
                     value.InUse = true;
                     // Make changes in the Card hashtable
@@ -184,8 +203,7 @@ namespace Octgn.Play
                 // Clear peeking (if any)
                 PeekingPlayers.Clear();
                 //Switch back to original image.
-                IsAlternateImage = false;
-                if (Program.Game.Definition.CardsRevertToOriginalOnGroupChange) { RevertToOriginal(); } 
+                this.SwitchTo(Player.LocalPlayer);
             }
         }
 
@@ -198,7 +216,6 @@ namespace Octgn.Play
                 Program.Client.Rpc.TurnReq(this, value);
                 if (_faceUp) MayBeConsideredFaceUp = true; // See comment for mayBeConsideredFaceUp
                 new Turn(Player.LocalPlayer, this, value).Do();
-                if (value) catchUpOnAlternateSwitches();
             }
         }
         //Okay, someone please explain to me why we have the setter above and the set function below? (V)_V
@@ -210,11 +227,18 @@ namespace Octgn.Play
             if (lFaceUp)
             {
                 PeekingPlayers.Clear();
-                catchUpOnAlternateSwitches();
             }
         }
 
         public bool OverrideGroupVisibility { get; private set; }
+
+        public static Card[] AllCards()
+        {
+            lock (All)
+            {
+                return All.Select(x => x.Value).ToArray();
+            }
+        }
 
         public CardOrientation Orientation
         {
@@ -262,6 +286,8 @@ namespace Octgn.Play
             }
         }
 
+        private string sleeveUrl;
+
         public Player TargetedBy { get; private set; }
 
         internal bool TargetsOtherCards { get; set; }
@@ -275,26 +301,35 @@ namespace Octgn.Play
                 Program.Client.Rpc.Highlight(this, value);
             }
         }
+        public string HighlightColorString
+        {
+            get
+            {
+                Color? colorOrNull = _highlight;
+                if (colorOrNull == null) return "None";
+                Color color = colorOrNull.Value;
+                return string.Format("#{0:x2}{1:x2}{2:x2}", color.R, color.G, color.B);
+            }
+        }
 
         public bool IsHighlighted
         {
             get { return _selected || _highlight != null; }
         }
 
+        public bool IsProxy()
+        {
+            if (_isProxy == null)
+            {
+                _isProxy = Type.Model.GetPicture().Equals(Type.Model.GetProxyPicture());
+            }
+
+            return _isProxy.GetValueOrDefault();
+        }
+
         public ObservableCollection<Player> PeekingPlayers
         {
             get { return _playersPeeking; }
-        }
-
-        public string Picture
-        {
-            get
-            {
-                if (IsAlternateImage)
-                    return Type.Model.AlternatePicture() ?? DefaultFront;
-                if (!FaceUp) return DefaultBack;
-                return Type.Model == null ? DefaultFront : Type.Model.GetPicture();
-            }
         }
 
         public void ToggleTarget()
@@ -335,34 +370,65 @@ namespace Octgn.Play
             return Name;
         }
 
+        public string[] Alternates()
+        {
+            if (_type.Model == null) return new string[0];
+            return _type.Model.Properties.Select(x => x.Key).ToArray();
+        }
+
+        public string Alternate()
+        {
+            return this._type.Model == null ? "" : this._type.Model.Alternate;
+        }
+
+        public void SwitchTo(Player player, string alternate = "", bool notifyServer = true)
+        {
+            if (_type.Model == null) return;
+            if (_type.Model.Alternate.ToLower() == alternate.ToLower()) return;
+            if (player.Id == Player.LocalPlayer.Id)
+                if (notifyServer)
+                    Program.Client.Rpc.CardSwitchTo(player, this, alternate);
+            _type.Model.SetPropertySet(alternate);
+            this.OnPropertyChanged("Picture");
+        }
+
         public object GetProperty(string name)
         {
             if (_type.Model == null) return null;
-            if (name == "Name") return _type.Model.Name;
+            if (name == "Name") return _type.Model.PropertyName();
             if (name == "Id") return _type.Model.Id;
-            var prop = _type.Model.Properties.FirstOrDefault(x => x.Key.Name == name);
+            var prop = _type.Model.PropertySet().FirstOrDefault(x => x.Key.Name == name);
+            //var prop = _type.Model.Properties.FirstOrDefault(x => x.Key.Name == name);
             return prop.Value;
         }
 
-        public void MoveTo(Group to, bool lFaceUp)
+        public void MoveTo(Group to, bool lFaceUp, bool isScriptMove)
         {
             // Default: move cards to the end of hand, top of table; but top of piles (which is index 0)
             int toIdx = to is Pile ? 0 : to.Cards.Count;
-            MoveTo(to, lFaceUp, toIdx);
+            MoveTo(to, lFaceUp, toIdx, isScriptMove);
         }
 
-        public void MoveTo(Group to, bool lFaceUp, int idx)
+        public void MoveTo(Group to, bool lFaceUp, int idx, bool isScriptMove)
         {
+            //converts negative indexes to count from the bottom for consistency with python behavior
+            if (idx < 0) idx = to.Count + 1 + idx;
+            //over-large indecies reduced to place cards at end of pile
+            if (idx >= to.Count) idx = to.Count;
+            if (idx < 0) idx = 0;
+            //move skipped if card already at location specified
             if (to == Group && idx < Group.Count && Group[idx] == this) return;
             if (to.Visibility != GroupVisibility.Undefined) lFaceUp = FaceUp;
-            Program.Client.Rpc.MoveCardReq(this, to, idx, lFaceUp);
-            new MoveCard(Player.LocalPlayer, this, to, idx, lFaceUp).Do();
+            Program.Client.Rpc.MoveCardReq(this, to, idx, lFaceUp, isScriptMove);
+            new MoveCard(Player.LocalPlayer, this, to, idx, lFaceUp, isScriptMove).Do();
+            Program.Client.Rpc.CardSwitchTo(Player.LocalPlayer, this, this.Alternate());
         }
 
-        public void MoveToTable(int x, int y, bool lFaceUp, int idx)
+        public void MoveToTable(int x, int y, bool lFaceUp, int idx, bool isScriptMove)
         {
-            Program.Client.Rpc.MoveCardAtReq(this, x, y, idx, lFaceUp);
-            new MoveCard(Player.LocalPlayer, this, x, y, idx, lFaceUp).Do();
+            Program.Client.Rpc.MoveCardAtReq(this, x, y, idx, lFaceUp, isScriptMove);
+            new MoveCard(Player.LocalPlayer, this, x, y, idx, lFaceUp, isScriptMove).Do();
+            Program.Client.Rpc.CardSwitchTo(Player.LocalPlayer, this, this.Alternate());
         }
 
         public int GetIndex()
@@ -372,7 +438,13 @@ namespace Octgn.Play
 
         public void SetIndex(int idx)
         {
-            Group.SetCardIndex(this, idx);
+            if (Group != null)
+                Group.SetCardIndex(this, idx);
+        }
+
+        public ulong GetEncryptedKey()
+        {
+            return Crypto.ModExp(this._type.Key);
         }
 
         public void Peek()
@@ -384,49 +456,38 @@ namespace Octgn.Play
 
         private static void PeekContinuation(object sender, RevealEventArgs e)
         {
-            var identity = (CardIdentity) sender;
+            var identity = (CardIdentity)sender;
             identity.Revealed -= PeekContinuation;
             if (e.NewIdentity.Model == null)
             {
                 e.NewIdentity.Revealed += PeekContinuation;
                 return;
             }
-            Program.TracePlayerEvent(Player.LocalPlayer, "You peeked at {0}.", e.NewIdentity.Model);
+            Program.GameMess.PlayerEvent(Player.LocalPlayer, "peeked at {0}.", e.NewIdentity.Model);
         }
 
-        internal string GetPicture(bool up)
+        internal BitmapImage GetBitmapImage(bool up, bool proxyOnly = false)
         {
-            if (IsAlternateImage)
-                //return Type.Model.AlternatePicture == null ? DefaultFront : Program.Game.CardFrontBitmap.ToString();
-                return Type.Model.AlternatePicture() ?? DefaultFront;
-            if (!up) return DefaultBack;
-            if (Type == null || Type.Model == null) return DefaultFront;
-            return Type.Model.GetPicture();
-        }
-
-        internal BitmapImage GetBitmapImage(bool up)
-        {
-            if (IsAlternateImage)
-            {       
-                BitmapImage bmp = null;
-                try
-                {
-                    bmp = new BitmapImage(new Uri(Type.Model.AlternatePicture())) { CacheOption = BitmapCacheOption.OnLoad };
-                }
-                catch (Exception)
-                {
-                   
-                }
-                if (bmp == null)
-                    bmp = Program.Game.CardFrontBitmap;
-                bmp.Freeze();
-                return bmp;
+            if (!up)
+            {
+				if(string.IsNullOrWhiteSpace(sleeveUrl))
+					return Program.GameEngine.CardBackBitmap;
+                BitmapImage b = null;
+				Library.X.Instance.Try(()=>b = ImageUtils.CreateFrozenBitmap(new Uri(sleeveUrl)));
+				if(b == null)
+                    return Program.GameEngine.CardBackBitmap;
+                return b;
             }
-            if (!up) return Program.Game.CardBackBitmap;
-            if (Type == null || Type.Model == null) return Program.Game.CardFrontBitmap;
-            var bmpo = new BitmapImage(new Uri(Type.Model.GetPicture())) {CacheOption = BitmapCacheOption.OnLoad};
-            bmpo.Freeze();
-            return bmpo;
+            if (Type == null || Type.Model == null) return Program.GameEngine.CardFrontBitmap;
+            BitmapImage bmpo = null;
+            Octgn.Library.X.Instance.Try(() =>
+            {
+                Uri imgUrl = null;
+                imgUrl = proxyOnly ? new Uri(Type.Model.GetProxyPicture()) : new Uri(Type.Model.GetPicture());
+                ImageUtils.GetCardImage(imgUrl, x => bmpo = x);
+            });
+
+            return bmpo ?? Program.GameEngine.CardFrontBitmap;
         }
 
         internal void SetOrientation(CardOrientation value)
@@ -483,14 +544,9 @@ namespace Octgn.Play
 
         internal void SetModel(DataNew.Entities.Card model)
         {
-#if (DEBUG)
-            Debug.WriteLine("SetModel event happened!");
-#endif
-            bool processSwitches = false;
-            if (Type.Model == null) processSwitches = true;//if there is no current model, we've built up unperformed Alternate Switches
+            Log.Info("SetModel event happened!");
             Type.Model = model;
             OnPropertyChanged("Picture");//This should be changed - the model is much more than just the picture.
-            if (processSwitches) catchUpOnAlternateSwitches();
         }
 
         internal bool IsVisibleToAll()
@@ -507,7 +563,7 @@ namespace Octgn.Play
 
         internal override void NotControlledError()
         {
-            Tooltip.PopupError("You don't control this card.");
+            //Tooltip.PopupError("You don't control this card.");
         }
 
         internal override bool TryToManipulate()
@@ -524,12 +580,10 @@ namespace Octgn.Play
             // It then leads to bugs if not taken good care of.
             if (Type.Revealing) return;
 
-#if (DEBUG)
-            Debug.WriteLine("REVEAL event about to fire!");
-#endif
+            Log.Info("REVEAL event about to fire!");
             Type.Revealing = true;
             if (!Type.MySecret) return;
-            Program.Client.Rpc.Reveal(this, _type.Key, _type.Alias ? Guid.Empty : isAlternate() ? _alternateOf.Id : _type.Model.Id);
+            Program.Client.Rpc.Reveal(this, _type.Key, _type.Model.Id);
         }
 
         internal void RevealTo(IEnumerable<Player> players)
@@ -545,26 +599,28 @@ namespace Octgn.Play
             }
 
             // If it's an alias pass it to the one who created it
-            if (Type.Alias)
+            //if (Type.Alias)
+            //{
+            //    Player p = Player.Find((byte) (Type.Key >> 16));
+            //    if (p == null) return;
+            //    if (players == null) return;
+            //    Program.Client.Rpc.RevealToReq(p, players.ToArray(), this, Crypto.Encrypt(Type.Key, p.PublicKey));
+            //}
+            //    // Else pass to every viewer
+            //else
+            //{
+            var pArray = new Player[1];
+            foreach (Player p in players)
             {
-                Player p = Player.Find((byte) (Type.Key >> 16));
-                Program.Client.Rpc.RevealToReq(p, players.ToArray(), this, Crypto.Encrypt(Type.Key, p.PublicKey));
-            }
-                // Else pass to every viewer
-            else
-            {
-                var pArray = new Player[1];
-                foreach (Player p in players)
+                if (p == Player.LocalPlayer)
+                    Type.OnRevealed(Type);
+                else
                 {
-                    if (p == Player.LocalPlayer)
-                        Type.OnRevealed(Type);
-                    else
-                    {
-                        pArray[0] = p;
-                        Program.Client.Rpc.RevealToReq(p, pArray, this, Crypto.Encrypt(isAlternate() ? _alternateOf.Id : Type.Model.Id, p.PublicKey));
-                    }
+                    pArray[0] = p;
+                    Program.Client.Rpc.RevealToReq(p, pArray, this, Crypto.EncryptGuid(Type.Model.Id, p.PublicKey));
                 }
             }
+            //}
         }
 
         #region Comparers
@@ -577,7 +633,7 @@ namespace Octgn.Play
 
             public int Compare(object x, object y)
             {
-                return String.CompareOrdinal(((Card) x).Name, ((Card) y).Name);
+                return String.CompareOrdinal(((Card)x).Name, ((Card)y).Name);
             }
 
             #endregion
@@ -593,7 +649,7 @@ namespace Octgn.Play
 
             public int Compare(object x, object y)
             {
-                return String.CompareOrdinal(((Card) x).RealName, ((Card) y).RealName);
+                return String.CompareOrdinal(((Card)x).RealName, ((Card)y).RealName);
             }
 
             #endregion
@@ -606,17 +662,54 @@ namespace Octgn.Play
         #region Markers
 
         private readonly ObservableCollection<Marker> _markers = new ObservableCollection<Marker>();
+        private readonly List<Marker> _removedMarkers = new List<Marker>();
 
         public IList<Marker> Markers
         {
             get { return _markers; }
         }
 
+        public string MarkersString
+        {
+            get
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.Append("{");
+                if (_markers.Count > 0)
+                {
+                    int counter = 0;
+                    foreach (Marker m in _markers)
+                    {
+                        sb.AppendFormat("{0}:{1}", m.Model.ModelString(), m.Count);
+                        counter++;
+                        if (counter != _markers.Count) sb.Append(",");
+                    }
+                }
+                sb.Append("}");
+                return sb.ToString();
+            }
+        }
+        //public Dictionary<Tuple<string,string>,int> MarkersDict
+        //{
+        //    get
+        //    {
+        //        Dictionary<Tuple<string, string>, int> markertuple = new Dictionary<Tuple<string,string>,int>();
+        //        if (_markers.Count > 0)
+        //        {
+        //            foreach (Marker m in _markers)
+        //            {
+        //                Tuple<string, string> key = Tuple.Create<string, string>(m.Model.Name, m.Model.Id.ToString());
+        //                markertuple.Add(key, m.Count);
+        //            }
+        //        }
+        //        return markertuple;
+        //    }
+        //}
         internal void AddMarker(DataNew.Entities.Marker model, ushort count)
         {
             Marker marker = _markers.FirstOrDefault(m => m.Model.Equals(model));
             if (marker != null)
-                marker.SetCount((ushort) (marker.Count + count));
+                marker.SetCount((ushort)(marker.Count + count));
             else if (count > 0)
                 _markers.Add(new Marker(this, model, count));
         }
@@ -634,16 +727,18 @@ namespace Octgn.Play
             {
                 int realCount = marker.Count;
                 _markers.Remove(marker);
+                _removedMarkers.Add(marker);
                 return realCount;
             }
 
-            marker.SetCount((ushort) (marker.Count - count));
+            marker.SetCount((ushort)(marker.Count - count));
             return count;
         }
 
         internal void RemoveMarker(Marker marker)
         {
             _markers.Remove(marker);
+            _removedMarkers.Add(marker);
         }
 
         internal Marker FindMarker(Guid lId, string name)
@@ -653,28 +748,33 @@ namespace Octgn.Play
                                            (!(m.Model is DefaultMarkerModel) || m.Model.Name == name));
         }
 
-        internal void SetMarker(Player player, Guid lId, string name, int count)
+        internal Marker FindRemovedMarker(Guid lId, string name)
+        {
+            return _removedMarkers.FirstOrDefault(m =>
+                                           m.Model.Id == lId &&
+                                           (!(m.Model is DefaultMarkerModel) || m.Model.Name == name));
+        }
+
+        internal void SetMarker(Player player, Guid lId, string name, int count, bool notify = true)
         {
             int oldCount = 0;
             Marker marker = FindMarker(lId, name);
             if (marker != null)
             {
                 oldCount = marker.Count;
-                marker.SetCount((ushort) count);
+                marker.SetCount((ushort)count);
             }
             else if (count > 0)
             {
-                DataNew.Entities.Marker model = Program.Game.GetMarkerModel(lId);
+                DataNew.Entities.Marker model = Program.GameEngine.GetMarkerModel(lId);
                 var defaultMarkerModel = model as DefaultMarkerModel;
                 if (defaultMarkerModel != null)
                     (defaultMarkerModel).SetName(name);
-                AddMarker(model, (ushort) count);
+                AddMarker(model, (ushort)count);
             }
-            if (count != oldCount)
-                Program.TracePlayerEvent(player, "{0} sets {1} ({2}) markers {3} on {4}.",
-                                         player, count, (count - oldCount).ToString("+#;-#"),
-                                         marker != null ? marker.Model.Name : name, this);
         }
+
+
 
         #endregion Markers
 
@@ -683,94 +783,34 @@ namespace Octgn.Play
             return (Type.Model.HasProperty(propertyName));
         }
 
-        /// <summary>
-        /// Switches the underlying card model with some predefined Alternate
-        /// Returns true if the model was switched (or the switch was recorded to be performed when applicable)
-        /// Returns false if it did nothing.
-        /// </summary>
-        /// <returns></returns>
-        internal bool SwitchWithAlternate()
-        {//This function will change the underlying Model of a Card to some predefined alternate version.
-#if (DEBUG)
-            Debug.WriteLine("Attempting to SwitchWithAlternate on " + Name);
-#endif
-            if (_faceUp)
+        public void SetSleeve(int sleeveId)
+        {
+            try
             {
-                if (Type.Model.HasProperty("Alternate"))
-                {//if there is an alternate, we want to switch to it
-                    if (_alternateOf == null)
-                    {//Switching to first alternate
-                        _alternateOf = Type.Model;
-#if (DEBUG)
-                        Debug.WriteLine("Switching for the first time!");
-#endif
-                    }
-                    else
-                    {//Not the first, not the last
-#if (DEBUG)
-                        Debug.WriteLine("Not the first, not the last.");
-#endif
-                    }
-                    SetModel(Database.GetCardById(Type.Model.Alternate));
-                    return true;
+                var sleeve = SleeveManager.Instance.SleeveFromId(sleeveId);
+                if (sleeve != null)
+                {
+					SetSleeve(sleeve.Url);
                 }
-                //if there is no alternate, we might have reached the end of the chain
-                else if (_alternateOf != null)
-                {//Then we've come from somewhere, and we want to go back.
-                    SetModel(_alternateOf);
-                    _alternateOf = null;
-#if (DEBUG)
-                    Debug.WriteLine("Reached the end of the chain - Going back to the original");
-#endif
-                    return true;
-                }
-                //if we don't have a specified alternate, and we haven't come from an alternate, do nothing.
-#if (DEBUG)
-                Debug.WriteLine("No Alternate, No Original - Doin' Nothin.");
-#endif
-                return false;
             }
-            else //if not face up
+            catch (Exception e)
             {
-                numberOfSwitchWithAlternatesNotPerformed++;//the number of switches
-#if (DEBUG)
-                Debug.WriteLine("Not FaceUp. Catching the missed switch. New Number: " + numberOfSwitchWithAlternatesNotPerformed);
-#endif
-                return true;
+                Log.Warn("SetSleeve " + sleeveId, e);
             }
         }
 
-        public bool isAlternate()
+        public void SetSleeve(string pleeveUrl)
         {
-#if (DEBUG)
-            Debug.WriteLine(this.Name + " is Alternate? " + (_alternateOf != null));
-#endif
-            return (_alternateOf != null);//If there is an original version, return true.
-        }
-        private bool catchUpOnAlternateSwitches()
-        {
-#if (DEBUG)
-            Debug.WriteLine("Time to catch up on the Alternate Switches we missed! Number: " + numberOfSwitchWithAlternatesNotPerformed);
-#endif
             try
             {
-                while( 0 < numberOfSwitchWithAlternatesNotPerformed)
-                {
-                    SwitchWithAlternate();
-                    numberOfSwitchWithAlternatesNotPerformed--;
-                }
-                return true;
+                this.sleeveUrl = pleeveUrl;
+                OnPropertyChanged("FaceUp");
             }
-            catch(Exception)
+            catch (Exception e)
             {
-                Debug.WriteLine("Unable To Catchup on Alternate Switches at this time. Please try again Later.");
+                Log.Warn("SetSleeve " + (sleeveUrl ?? ""), e);
+                throw;
             }
-            return false;
-        }
-        public void RevertToOriginal()
-        {
-            if (isAlternate()) { SetModel(_alternateOf); }
-            numberOfSwitchWithAlternatesNotPerformed = 0;
         }
     }
 }
